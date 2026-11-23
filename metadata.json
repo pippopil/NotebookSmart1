@@ -1,0 +1,8 @@
+{
+  "name": "NotebookSmart",
+  "description": "Умные заметки с авто-решением выражений оплаты, парсингом списка покупок, ссылками на маркетплейсы, доставку и магазины, а также PWA и Firebase-синхронизацией.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

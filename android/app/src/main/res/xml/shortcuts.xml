@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_note"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_note_short"
+        android:shortcutLongLabel="@string/shortcut_new_note_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pippopil.notebooksmart"
+            android:targetClass="com.pippopil.notebooksmart.MainActivity"
+            android:data="notebooksmart://action/new-note" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="shopping"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_shopping_short"
+        android:shortcutLongLabel="@string/shortcut_shopping_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pippopil.notebooksmart"
+            android:targetClass="com.pippopil.notebooksmart.MainActivity"
+            android:data="notebooksmart://action/shopping" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="calc"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_calc_short"
+        android:shortcutLongLabel="@string/shortcut_calc_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pippopil.notebooksmart"
+            android:targetClass="com.pippopil.notebooksmart.MainActivity"
+            android:data="notebooksmart://action/calc" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="event"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_event_short"
+        android:shortcutLongLabel="@string/shortcut_event_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pippopil.notebooksmart"
+            android:targetClass="com.pippopil.notebooksmart.MainActivity"
+            android:data="notebooksmart://action/event" />
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NotebookSmart</string>
+    <string name="title_activity_main">NotebookSmart</string>
+    <string name="package_name">com.pippopil.notebooksmart</string>
+    <string name="custom_url_scheme">com.pippopil.notebooksmart</string>
+    <string name="shortcut_new_note_short">Новая заметка</string>
+    <string name="shortcut_new_note_long">Создать новую заметку</string>
+    <string name="shortcut_shopping_short">Покупки</string>
+    <string name="shortcut_shopping_long">Открыть список покупок</string>
+    <string name="shortcut_calc_short">Финансы</string>
+    <string name="shortcut_calc_long">Финансы и расчет смет</string>
+    <string name="shortcut_event_short">Событие</string>
+    <string name="shortcut_event_long">Запланировать событие</string>
+</resources>

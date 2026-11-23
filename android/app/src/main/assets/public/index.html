@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <script>
+      (function () {
+        // Intercept Vite HMR WebSocket connection to prevent connection failure in AI Studio preview
+        var OriginalWebSocket = window.WebSocket;
+        if (OriginalWebSocket) {
+          window.WebSocket = function (url, protocols) {
+            var isViteHmr =
+              (typeof protocols === 'string' && protocols.indexOf('vite-hmr') !== -1) ||
+              (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+              (typeof url === 'string' && (url.indexOf('vite-hmr') !== -1 || url.indexOf('/@vite/client') !== -1));
+
+            if (isViteHmr) {
+              var listeners = {};
+              var mockSocket = {
+                readyState: 1, // OPEN
+                bufferedAmount: 0,
+                extensions: '',
+                protocol: 'vite-hmr',
+                url: String(url),
+                binaryType: 'blob',
+                send: function () {},
+                close: function () {
+                  mockSocket.readyState = 3;
+                },
+                addEventListener: function (type, cb) {
+                  listeners[type] = listeners[type] || [];
+                  listeners[type].push(cb);
+                },
+                removeEventListener: function (type, cb) {
+                  if (listeners[type]) {
+                    listeners[type] = listeners[type].filter(function (f) { return f !== cb; });
+                  }
+                },
+                dispatchEvent: function () { return false; },
+                onopen: null,
+                onmessage: null,
+                onerror: null,
+                onclose: null,
+              };
+              setTimeout(function () {
+                if (typeof mockSocket.onopen === 'function') {
+                  mockSocket.onopen(new Event('open'));
+                }
+                if (listeners['open']) {
+                  listeners['open'].forEach(function (cb) { cb(new Event('open')); });
+                }
+              }, 50);
+              return mockSocket;
+            }
+            return new OriginalWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OriginalWebSocket.prototype;
+          window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+          window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+          window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+          window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+        }
+
+        // Filter out Vite HMR WebSocket error logs in AI Studio preview
+        var origConsoleError = console.error;
+        console.error = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var msg = args.map(function (a) { return (a && a.message) || String(a); }).join(' ');
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('websocket') !== -1 ||
+            msg.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('vite-hmr') !== -1
+          ) {
+            return;
+          }
+          return origConsoleError.apply(console, args);
+        };
+
+        var origConsoleWarn = console.warn;
+        console.warn = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var msg = args.map(function (a) { return (a && a.message) || String(a); }).join(' ');
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('websocket') !== -1 ||
+            msg.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('vite-hmr') !== -1
+          ) {
+            return;
+          }
+          return origConsoleWarn.apply(console, args);
+        };
+
+        window.addEventListener('error', function (e) {
+          if (
+            e.message &&
+            (e.message.indexOf('WebSocket') !== -1 || e.message.indexOf('websocket') !== -1 || e.message.indexOf('@vite/client') !== -1)
+          ) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (e) {
+          if (
+            e.reason &&
+            (String(e.reason).indexOf('WebSocket') !== -1 || String(e.reason).indexOf('@vite/client') !== -1)
+          ) {
+            e.preventDefault();
+          }
+        }, true);
+      })();
+    </script>
+    <meta name="theme-color" content="#faf7f2" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NotebookSmart" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>NotebookSmart — Умные заметки и списки покупок</title>
+    <meta name="description" content="Умные заметки с авто-решением выражений оплаты, парсингом списка покупок, ссылками на маркетплейсы, доставку и магазины, а также PWA и Firebase-синхронизацией." />
+    <meta property="og:title" content="NotebookSmart — Умные заметки и списки покупок" />
+    <meta property="og:description" content="Умные заметки с авто-решением выражений оплаты, парсингом списка покупок, ссылками на маркетплейсы, доставку и магазины, а также PWA и Firebase-синхронизацией." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="module" crossorigin src="/assets/index-HU7AHZSr.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Cumd9tZ0.css">
+  <link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
