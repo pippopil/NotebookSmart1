@@ -337,39 +337,40 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
   return (
     <div className="bg-[#fffdfa] dark:bg-stone-900 border border-amber-900/15 dark:border-stone-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4">
       {/* Header with Month Navigation, Today Button & Monthly Load Summary */}
-      <div className="flex items-center justify-between gap-2 pb-3 border-b border-amber-900/10 dark:border-stone-800">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-2 rounded-xl bg-purple-500/15 text-purple-700 dark:text-purple-400 shrink-0">
+      <div className="flex items-center justify-between gap-2 pb-3.5 border-b border-amber-900/10 dark:border-stone-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-purple-500/15 text-purple-800 dark:text-purple-300 shrink-0">
             <CalendarIcon className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
-            <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white capitalize flex items-center gap-2 flex-wrap">
+          <div className="min-w-0 space-y-0.5">
+            <h3 className="text-lg sm:text-xl font-extrabold leading-snug text-stone-950 dark:text-white capitalize flex items-center gap-2 flex-wrap">
               <span>{monthName}</span>
               <button
                 type="button"
                 onClick={handleToday}
-                className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800 transition cursor-pointer"
+                className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700 transition cursor-pointer"
                 title="Перейти к сегодняшнему числу"
               >
                 Сегодня
               </button>
               {(monthEventsTotal > 0 || monthTasksTotal > 0) && (
-                <span className="normal-case text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700">
+                <span className="normal-case text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-300/80 dark:border-stone-700">
                   Событий: {monthEventsTotal} · Задач: {monthTasksTotal}
                 </span>
               )}
             </h3>
-            <span className="text-[11px] text-stone-500 dark:text-stone-400 block truncate">
-              Индикаторы нагрузки по событиям и задачам + ближайшие дела справа
+            <span className="text-xs sm:text-sm leading-relaxed text-stone-700 dark:text-stone-300 block">
+              Индикаторы нагрузки по событиям и задачам + ближайшие дела
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
             onClick={handlePrevMonth}
-            className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition cursor-pointer"
+            aria-label="Предыдущий месяц"
+            className="p-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 border border-stone-300/80 dark:border-stone-700 transition cursor-pointer"
             title="Предыдущий месяц"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -377,7 +378,8 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
           <button
             type="button"
             onClick={handleNextMonth}
-            className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition cursor-pointer"
+            aria-label="Следующий месяц"
+            className="p-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 border border-stone-300/80 dark:border-stone-700 transition cursor-pointer"
             title="Следующий месяц"
           >
             <ChevronRight className="w-4 h-4" />
@@ -387,56 +389,56 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
 
       {/* SIDE-BY-SIDE WIDGET BODY: LEFT = MONTH CALENDAR, RIGHT = EVENT / REMINDER / TASK */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-        {/* LEFT COLUMN (7 cols): WELL-READABLE MONTH CALENDAR GRID */}
-        <div className="md:col-span-7 space-y-1">
-          <div className="grid grid-cols-7 gap-1 text-center font-bold text-xs text-stone-500 dark:text-stone-400 pb-1">
+        {/* LEFT COLUMN (8 cols): LARGE, HIGH-CONTRAST MONTH CALENDAR GRID */}
+        <div className="md:col-span-8 space-y-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center font-extrabold text-sm sm:text-base leading-normal text-stone-800 dark:text-stone-200 pb-1">
             {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((d, i) => (
-              <div key={d} className={`py-0.5 ${i >= 5 ? 'text-rose-500 dark:text-rose-400 font-extrabold' : ''}`}>
+              <div key={d} className={`py-0.5 ${i >= 5 ? 'text-rose-700 dark:text-rose-400 font-extrabold' : ''}`}>
                 {d}
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-1 sm:gap-1.5 font-mono text-xs">
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2 font-mono">
             {calendarCells.map((cell) => {
               const isSelected = selectedDate === cell.dateStr;
 
               let cellColorClass = cell.isCurrentMonth
-                ? 'bg-stone-50/80 hover:bg-stone-100 dark:bg-stone-800/60 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/60'
-                : 'bg-stone-100/40 dark:bg-stone-900/30 text-stone-400 dark:text-stone-600 border-transparent hover:border-stone-200';
+                ? 'bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/80 dark:hover:bg-stone-800 border-stone-300/80 dark:border-stone-700 text-stone-950 dark:text-white'
+                : 'bg-stone-100/50 dark:bg-stone-900/40 text-stone-500 dark:text-stone-500 border-transparent hover:border-stone-300';
               let workloadDotColor = '';
               let workloadBarColor = '';
 
               if (cell.workloadLevel === 'light') {
                 cellColorClass =
-                  'bg-emerald-100/85 hover:bg-emerald-200/80 dark:bg-emerald-950/55 border-emerald-400 dark:border-emerald-700 text-emerald-950 dark:text-emerald-200';
-                workloadDotColor = 'bg-emerald-600';
-                workloadBarColor = 'bg-emerald-500';
+                  'bg-emerald-100 hover:bg-emerald-200/85 dark:bg-emerald-950/70 border-emerald-500 dark:border-emerald-600 text-emerald-950 dark:text-emerald-100';
+                workloadDotColor = 'bg-emerald-700 dark:bg-emerald-400';
+                workloadBarColor = 'bg-emerald-600 dark:bg-emerald-400';
               } else if (cell.workloadLevel === 'medium') {
                 cellColorClass =
-                  'bg-amber-100/90 hover:bg-amber-200/80 dark:bg-amber-950/60 border-amber-400 dark:border-amber-700 text-amber-950 dark:text-amber-200';
-                workloadDotColor = 'bg-amber-600';
-                workloadBarColor = 'bg-amber-500';
+                  'bg-amber-100 hover:bg-amber-200/90 dark:bg-amber-950/75 border-amber-500 dark:border-amber-600 text-amber-950 dark:text-amber-100';
+                workloadDotColor = 'bg-amber-700 dark:bg-amber-400';
+                workloadBarColor = 'bg-amber-600 dark:bg-amber-400';
               } else if (cell.workloadLevel === 'heavy') {
                 cellColorClass =
-                  'bg-orange-100/95 hover:bg-orange-200/85 dark:bg-orange-950/65 border-orange-500 dark:border-orange-600 text-orange-950 dark:text-orange-200';
-                workloadDotColor = 'bg-orange-600';
-                workloadBarColor = 'bg-orange-500';
+                  'bg-orange-100 hover:bg-orange-200/90 dark:bg-orange-950/75 border-orange-500 dark:border-orange-500 text-orange-950 dark:text-orange-100';
+                workloadDotColor = 'bg-orange-700 dark:bg-orange-400';
+                workloadBarColor = 'bg-orange-600 dark:bg-orange-400';
               } else if (cell.workloadLevel === 'peak') {
                 cellColorClass =
-                  'bg-rose-100 hover:bg-rose-200/90 dark:bg-rose-950/75 border-rose-500 dark:border-rose-500 text-rose-950 dark:text-rose-100 shadow-2xs';
-                workloadDotColor = 'bg-rose-600';
-                workloadBarColor = 'bg-rose-600';
+                  'bg-rose-100 hover:bg-rose-200/95 dark:bg-rose-950/85 border-rose-600 dark:border-rose-500 text-rose-950 dark:text-rose-50 shadow-2xs';
+                workloadDotColor = 'bg-rose-700 dark:bg-rose-400';
+                workloadBarColor = 'bg-rose-600 dark:bg-rose-400';
               } else if (cell.completedCount > 0) {
                 cellColorClass =
-                  'bg-stone-100/90 hover:bg-stone-200/70 dark:bg-stone-800/70 border-stone-300 dark:border-stone-700 text-stone-600 dark:text-stone-400';
-                workloadDotColor = 'bg-stone-400';
-                workloadBarColor = 'bg-stone-400';
+                  'bg-stone-100 hover:bg-stone-200/80 dark:bg-stone-800/80 border-stone-400/70 dark:border-stone-600 text-stone-800 dark:text-stone-200';
+                workloadDotColor = 'bg-stone-600 dark:bg-stone-400';
+                workloadBarColor = 'bg-stone-600 dark:bg-stone-400';
               }
 
               const loadRatioPercent =
                 cell.totalLoad > 0
-                  ? Math.min(100, Math.max(22, Math.round((cell.totalLoad / Math.max(maxMonthLoad, 4)) * 100)))
+                  ? Math.min(100, Math.max(24, Math.round((cell.totalLoad / Math.max(maxMonthLoad, 4)) * 100)))
                   : 0;
 
               const tooltipParts: string[] = [];
@@ -454,49 +456,49 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                   key={cell.dateStr}
                   onClick={() => onSelectDate && onSelectDate(cell.dateStr)}
                   title={cellTooltip}
-                  className={`relative ${compact ? 'min-h-[44px]' : 'min-h-[54px] sm:min-h-[60px]'} p-1.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                  className={`relative ${compact ? 'min-h-[56px]' : 'min-h-[66px] sm:min-h-[74px]'} p-1.5 sm:p-2 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
                     cellColorClass
                   } ${
                     isSelected
-                      ? 'ring-2 ring-purple-600 border-purple-600 shadow-sm z-10'
+                      ? 'ring-2 ring-purple-700 border-purple-700 shadow-sm z-10'
                       : cell.isToday
-                      ? 'ring-2 ring-purple-500/80 dark:ring-amber-400/85 font-extrabold'
+                      ? 'ring-2 ring-purple-600 dark:ring-amber-400 font-extrabold'
                       : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-0.5">
                     <span
-                      className={`font-bold text-xs leading-none ${
+                      className={`font-extrabold text-base sm:text-lg leading-snug ${
                         cell.isToday
-                          ? 'text-purple-800 dark:text-amber-300 underline decoration-2 underline-offset-2'
+                          ? 'text-purple-900 dark:text-amber-300 underline decoration-2 underline-offset-2'
                           : cell.isCurrentMonth
-                          ? 'text-stone-900 dark:text-white'
-                          : 'text-stone-400 dark:text-stone-600'
+                          ? 'text-stone-950 dark:text-white'
+                          : 'text-stone-500 dark:text-stone-500'
                       }`}
                     >
                       {cell.dayNum}
                     </span>
 
-                    <div className="flex items-center gap-0.5 leading-none">
+                    <div className="flex items-center gap-0.5 leading-snug">
                       {cell.workloadLevel === 'peak' && (
-                        <span className="text-[10px] select-none" title="Максимум дел в этом месяце">
+                        <span className="text-xs select-none" title="Максимум дел в этом месяце">
                           🔥
                         </span>
                       )}
                       {cell.holiday && (
-                        <span className="text-[10px] select-none" title={`Праздник: ${cell.holiday.name}`}>
+                        <span className="text-xs select-none" title={`Праздник: ${cell.holiday.name}`}>
                           {cell.holiday.emoji || '🎉'}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="space-y-1 mt-0.5">
+                  <div className="space-y-1 mt-1">
                     {cell.totalLoad > 0 ? (
                       <>
                         <div className="flex items-center justify-between w-full gap-0.5">
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-extrabold leading-none">
-                            <span className={`w-1.5 h-1.5 rounded-full ${workloadDotColor} shrink-0`} />
+                          <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-extrabold leading-snug">
+                            <span className={`w-2 h-2 rounded-full ${workloadDotColor} shrink-0`} />
                             <span>{cell.totalLoad}</span>
                           </span>
                           <div className="flex items-center gap-0.5 shrink-0 overflow-hidden">
@@ -505,14 +507,14 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                               return (
                                 <span
                                   key={idx}
-                                  className={`w-1.5 h-1.5 rounded-full ${catConf?.dotColor || 'bg-purple-500'} shrink-0`}
+                                  className={`w-2 h-2 rounded-full ${catConf?.dotColor || 'bg-purple-600'} shrink-0`}
                                 />
                               );
                             })}
                           </div>
                         </div>
                         {/* Proportional Day Workload Indicator Bar */}
-                        <div className="w-full h-1 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-black/15 dark:bg-white/15 overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all ${workloadBarColor}`}
                             style={{ width: `${loadRatioPercent}%` }}
@@ -520,11 +522,11 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                         </div>
                       </>
                     ) : cell.completedCount > 0 ? (
-                      <span className="text-[9px] font-bold text-stone-500 dark:text-stone-400 block truncate">
+                      <span className="text-[11px] sm:text-xs font-bold leading-snug text-stone-700 dark:text-stone-300 block truncate">
                         ✓ {cell.completedCount}
                       </span>
                     ) : cell.holiday ? (
-                      <span className="text-[8px] text-amber-800 dark:text-amber-400 font-bold truncate block">
+                      <span className="text-[11px] sm:text-xs leading-snug text-amber-900 dark:text-amber-300 font-bold truncate block">
                         праздник
                       </span>
                     ) : null}
@@ -535,47 +537,47 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN (5 cols): БЛИЖАЙШЕЕ СОБЫТИЕ, НАПОМИНАНИЕ, ЗАДАНИЕ */}
-        <div className="md:col-span-5 space-y-2.5">
+        {/* RIGHT COLUMN (4 cols): БЛИЖАЙШЕЕ СОБЫТИЕ, НАПОМИНАНИЕ, ЗАДАНИЕ */}
+        <div className="md:col-span-4 space-y-3">
           {/* 1. Nearest Event */}
           <div
             onClick={() => nearestUpcomingEvent && onOpenNote && onOpenNote(nearestUpcomingEvent)}
-            className={`p-3 rounded-2xl border transition ${
+            className={`p-3.5 sm:p-4 rounded-2xl border transition ${
               nearestUpcomingEvent
-                ? 'bg-gradient-to-br from-purple-500/15 via-amber-500/5 to-purple-500/10 dark:from-purple-950/50 dark:to-stone-900 border-purple-400/50 hover:border-purple-500 cursor-pointer group'
-                : 'bg-stone-50 dark:bg-stone-800/60 border-stone-200 dark:border-stone-800'
+                ? 'bg-gradient-to-br from-purple-500/15 via-amber-500/5 to-purple-500/10 dark:from-purple-950/60 dark:to-stone-900 border-purple-400/70 hover:border-purple-600 cursor-pointer group'
+                : 'bg-stone-50 dark:bg-stone-800/70 border-stone-300/80 dark:border-stone-700'
             }`}
           >
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-700 dark:text-purple-300 flex items-center gap-1">
-                <Sparkles className="w-3 h-3" />
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-extrabold uppercase tracking-wide leading-normal text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
                 <span>Ближайшее событие</span>
               </span>
-              {nearestUpcomingEvent && <ArrowRight className="w-3.5 h-3.5 text-purple-600 group-hover:translate-x-0.5 transition" />}
+              {nearestUpcomingEvent && <ArrowRight className="w-4 h-4 text-purple-700 dark:text-purple-300 group-hover:translate-x-0.5 transition shrink-0" />}
             </div>
 
             {nearestUpcomingEvent ? (
-              <div>
-                <h4 className="font-bold text-xs sm:text-sm text-stone-900 dark:text-white truncate">
+              <div className="space-y-1.5">
+                <h4 className="font-extrabold text-sm sm:text-base leading-snug text-stone-950 dark:text-white line-clamp-2">
                   {nearestUpcomingEvent.title || 'Событие без названия'}
                 </h4>
-                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
-                    className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md border ${
+                    className={`text-xs font-bold leading-snug px-2 py-0.5 rounded-md border ${
                       EVENT_CATEGORY_CONFIG[nearestUpcomingEvent.eventCategory || 'meeting'].badgeClass
                     }`}
                   >
                     {EVENT_CATEGORY_CONFIG[nearestUpcomingEvent.eventCategory || 'meeting'].icon}{' '}
                     {EVENT_CATEGORY_CONFIG[nearestUpcomingEvent.eventCategory || 'meeting'].label}
                   </span>
-                  <span className="text-[11px] font-mono font-bold text-purple-800 dark:text-purple-300">
+                  <span className="text-xs sm:text-sm font-mono font-bold leading-relaxed text-purple-950 dark:text-purple-200">
                     {getNearestEventStatus(nearestUpcomingEvent).label}
                   </span>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
-                <CalendarCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <p className="text-sm leading-relaxed text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                <CalendarCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                 <span>Нет ближайших событий</span>
               </p>
             )}
@@ -584,27 +586,27 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
           {/* 2. Nearest Reminder */}
           <div
             onClick={() => nearestReminder && onOpenNote && onOpenNote(nearestReminder)}
-            className={`p-3 rounded-2xl border transition ${
+            className={`p-3.5 sm:p-4 rounded-2xl border transition ${
               nearestReminder
-                ? 'bg-amber-50/90 dark:bg-amber-950/30 border-amber-300/70 dark:border-amber-800/60 hover:border-amber-500 cursor-pointer group'
-                : 'bg-stone-50 dark:bg-stone-800/60 border-stone-200 dark:border-stone-800'
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400/80 dark:border-amber-700/80 hover:border-amber-600 cursor-pointer group'
+                : 'bg-stone-50 dark:bg-stone-800/70 border-stone-300/80 dark:border-stone-700'
             }`}
           >
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                <Bell className="w-3 h-3" />
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-extrabold uppercase tracking-wide leading-normal text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                <Bell className="w-3.5 h-3.5 shrink-0" />
                 <span>Напоминание</span>
               </span>
-              {nearestReminder && <ArrowRight className="w-3.5 h-3.5 text-amber-700 group-hover:translate-x-0.5 transition" />}
+              {nearestReminder && <ArrowRight className="w-4 h-4 text-amber-800 dark:text-amber-300 group-hover:translate-x-0.5 transition shrink-0" />}
             </div>
 
             {nearestReminder ? (
-              <div>
-                <h4 className="font-bold text-xs text-stone-900 dark:text-white truncate">
+              <div className="space-y-1">
+                <h4 className="font-extrabold text-sm sm:text-base leading-snug text-stone-950 dark:text-white line-clamp-2">
                   {nearestReminder.title || 'Напоминание в тетради'}
                 </h4>
-                <p className="text-[11px] font-mono text-amber-800 dark:text-amber-300 mt-0.5 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
+                <p className="text-xs sm:text-sm font-mono font-bold leading-relaxed text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     {new Date(nearestReminder.reminderDateTime!).toLocaleDateString('ru-RU', {
                       day: 'numeric',
@@ -616,65 +618,65 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-stone-500 dark:text-stone-400">Активных напоминаний нет</p>
+              <p className="text-sm leading-relaxed text-stone-700 dark:text-stone-300">Активных напоминаний нет</p>
             )}
           </div>
 
           {/* 3. Nearest Task */}
           <div
             onClick={() => nearestTask && onOpenNote && onOpenNote(nearestTask.note)}
-            className={`p-3 rounded-2xl border transition ${
+            className={`p-3.5 sm:p-4 rounded-2xl border transition ${
               nearestTask
-                ? 'bg-emerald-50/90 dark:bg-emerald-950/30 border-emerald-300/70 dark:border-emerald-800/60 hover:border-emerald-500 cursor-pointer group'
-                : 'bg-stone-50 dark:bg-stone-800/60 border-stone-200 dark:border-stone-800'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400/80 dark:border-emerald-700/80 hover:border-emerald-600 cursor-pointer group'
+                : 'bg-stone-50 dark:bg-stone-800/70 border-stone-300/80 dark:border-stone-700'
             }`}
           >
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-                <CheckSquare className="w-3 h-3" />
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-extrabold uppercase tracking-wide leading-normal text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                <CheckSquare className="w-3.5 h-3.5 shrink-0" />
                 <span>Задание</span>
               </span>
-              {nearestTask && <ArrowRight className="w-3.5 h-3.5 text-emerald-700 group-hover:translate-x-0.5 transition" />}
+              {nearestTask && <ArrowRight className="w-4 h-4 text-emerald-800 dark:text-emerald-300 group-hover:translate-x-0.5 transition shrink-0" />}
             </div>
 
             {nearestTask ? (
-              <div>
-                <h4 className="font-bold text-xs text-stone-900 dark:text-white truncate">
+              <div className="space-y-1">
+                <h4 className="font-extrabold text-sm sm:text-base leading-snug text-stone-950 dark:text-white line-clamp-2">
                   {nearestTask.title}
                 </h4>
-                <p className="text-[11px] text-emerald-800 dark:text-emerald-400 mt-0.5 truncate">
+                <p className="text-xs sm:text-sm font-semibold leading-relaxed text-emerald-900 dark:text-emerald-300 truncate">
                   {nearestTask.subtitle}
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-stone-500 dark:text-stone-400">Все задания выполнены</p>
+              <p className="text-sm leading-relaxed text-stone-700 dark:text-stone-300">Все задания выполнены</p>
             )}
           </div>
         </div>
       </div>
 
       {/* WORKLOAD DENSITY LEGEND & PEAK DAYS SUMMARY */}
-      <div className="pt-2.5 border-t border-amber-900/10 dark:border-stone-800 space-y-2 text-[11px] text-stone-500 dark:text-stone-400">
+      <div className="pt-3 border-t border-amber-900/10 dark:border-stone-800 space-y-2.5 text-xs sm:text-sm leading-relaxed text-stone-700 dark:text-stone-300">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="font-semibold text-stone-700 dark:text-stone-300">Индикатор нагрузки:</span>
+          <span className="font-bold text-stone-900 dark:text-stone-100">Индикатор нагрузки:</span>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded bg-emerald-500" />
+            <span className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold">
+              <span className="w-3 h-3 rounded bg-emerald-600" />
               <span>1 дело</span>
             </span>
-            <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded bg-amber-500" />
+            <span className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-bold">
+              <span className="w-3 h-3 rounded bg-amber-500" />
               <span>2–3</span>
             </span>
-            <span className="flex items-center gap-1 text-orange-700 dark:text-orange-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded bg-orange-500" />
+            <span className="flex items-center gap-1.5 text-orange-800 dark:text-orange-300 font-bold">
+              <span className="w-3 h-3 rounded bg-orange-500" />
               <span>Высокая</span>
             </span>
-            <span className="flex items-center gap-1 text-rose-700 dark:text-rose-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded bg-rose-600" />
+            <span className="flex items-center gap-1.5 text-rose-800 dark:text-rose-300 font-bold">
+              <span className="w-3 h-3 rounded bg-rose-600" />
               <span>🔥 Пик месяца</span>
             </span>
-            <span className="flex items-center gap-1 text-amber-600 font-bold">
+            <span className="flex items-center gap-1 text-amber-800 dark:text-amber-300 font-bold">
               <span>🎉</span>
               <span>Праздник</span>
             </span>
@@ -682,8 +684,8 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
         </div>
 
         {peakDays.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-[10px] font-bold uppercase text-rose-700 dark:text-rose-400">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-xs font-extrabold uppercase text-rose-800 dark:text-rose-300">
               Самые загруженные дни:
             </span>
             {peakDays.slice(0, 4).map((d) => (
@@ -691,7 +693,7 @@ export const CalendarMonthWidget: React.FC<CalendarMonthWidgetProps> = ({
                 key={d.dateStr}
                 type="button"
                 onClick={() => onSelectDate && onSelectDate(d.dateStr)}
-                className="px-2 py-0.5 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700 font-mono text-[10px] font-bold transition cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 dark:hover:bg-rose-900/90 text-rose-950 dark:text-rose-100 border border-rose-400 dark:border-rose-700 font-mono text-xs font-extrabold transition cursor-pointer"
               >
                 🔥{' '}
                 {new Date(`${d.dateStr}T00:00:00`).toLocaleDateString('ru-RU', {

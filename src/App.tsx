@@ -641,6 +641,38 @@ export default function App() {
         );
       }
     }
+    setAutoStartDictation(false);
+  };
+
+  const [autoStartDictation, setAutoStartDictation] = useState<boolean>(false);
+
+  const handleCreateVoiceNote = (
+    dictatedTitle = '',
+    dictatedContent = '',
+    startImmediately = true
+  ) => {
+    triggerHaptic();
+    const localTags = dictatedContent
+      ? extractSmartTagsLocally(dictatedTitle, dictatedContent, 'note')
+      : [];
+    const mergedTags = Array.from(new Set(['#диктовка', ...localTags]));
+    const newNote: Note = {
+      id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      title: dictatedTitle,
+      content: dictatedContent,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      category: 'note',
+      paperStyle: 'grid',
+      color: '#3b82f6',
+      isPinned: false,
+      tags: mergedTags,
+    };
+    const enriched = enrichNoteMetadata(newNote, globalAutoCalculate);
+    setNotes((prev) => [enriched, ...prev]);
+    setAutoStartDictation(startImmediately);
+    setSelectedNote(enriched);
+    syncNoteToRemote(roomCode, enriched);
   };
 
   const handleApplyTemplate = (tpl: NoteTemplate) => {
@@ -1279,12 +1311,18 @@ export default function App() {
       {/* Fullscreen Note Editor Modal / View */}
       {selectedNote && (
         <NoteEditor
+          key={selectedNote.id}
           note={selectedNote}
           globalAutoCalculate={globalAutoCalculate}
+          autoStartDictation={autoStartDictation}
           onUpdate={handleUpdateNote}
           onDelete={handleDeleteNote}
-          onClose={() => setSelectedNote(null)}
+          onClose={() => {
+            setAutoStartDictation(false);
+            setSelectedNote(null);
+          }}
           onOpenShopping={handleOpenShoppingFromNote}
+          onCreateVoiceNote={handleCreateVoiceNote}
         />
       )}
 
@@ -1355,10 +1393,13 @@ export default function App() {
         isCurrentlyUnlocked={isUnlocked}
       />
 
-      {/* Application Settings Modal (Global Calc, Timezone, Security, Theme, etc.) */}
+      {/* Application Settings Modal (Global Calc, Timezone, Backup, Security, Theme, etc.) */}
       <AppSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        notes={notes}
+        archivedBudgets={archivedBudgets}
+        archivedShopping={archivedShopping}
         timezoneMode={timezoneMode}
         onTimezoneModeChange={(newMode) => {
           setTimezoneMode(newMode);

@@ -14,6 +14,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Bundle;
 import android.widget.RemoteViews;
 import java.util.Calendar;
 import java.util.Locale;
@@ -53,6 +54,17 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
         }
     }
 
+    @Override
+    public void onAppWidgetOptionsChanged(
+        Context context,
+        AppWidgetManager appWidgetManager,
+        int appWidgetId,
+        Bundle newOptions
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions);
+        updateAppWidget(context, appWidgetManager, appWidgetId);
+    }
+
     public static void updateAppWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
@@ -73,8 +85,31 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
         views.setTextViewText(R.id.widget_nearest_task, nearestTaskTitle);
         views.setTextViewText(R.id.widget_nearest_task_sub, nearestTaskSub);
 
-        // Render high-contrast calendar bitmap (480x360 stays cleanly within RemoteViews IPC limit)
-        Bitmap calendarBitmap = renderMonthCalendarBitmap(eventsJson);
+        // Compute adaptive bitmap size matching the left calendar pane's exact aspect ratio
+        Bundle options = appWidgetManager.getAppWidgetOptions(appWidgetId);
+        int widgetWidthDp = options != null ? options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 320) : 320;
+        int widgetHeightDp = options != null ? options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 180) : 180;
+        if (widgetWidthDp <= 0) widgetWidthDp = 320;
+        if (widgetHeightDp <= 0) widgetHeightDp = 180;
+
+        float paneWidthDp = Math.max(150f, (widgetWidthDp - 27f) * (1.45f / 2.45f));
+        float paneHeightDp = Math.max(104f, widgetHeightDp - 14f);
+
+        // Render at high sharpness (~2.8px/dp) while staying comfortably inside RemoteViews IPC limits
+        float scale = 2.8f;
+        int bmpWidth = Math.round(paneWidthDp * scale);
+        int bmpHeight = Math.round(paneHeightDp * scale);
+        int maxPixels = 360000; // ~1.4MB raw, well below IPC cap
+        if ((long) bmpWidth * bmpHeight > maxPixels) {
+            double ratio = Math.sqrt((double) maxPixels / ((double) bmpWidth * bmpHeight));
+            bmpWidth = Math.max(360, (int) Math.round(bmpWidth * ratio));
+            bmpHeight = Math.max(240, (int) Math.round(bmpHeight * ratio));
+        } else {
+            bmpWidth = Math.max(420, Math.min(680, bmpWidth));
+            bmpHeight = Math.max(280, Math.min(560, bmpHeight));
+        }
+
+        Bitmap calendarBitmap = renderMonthCalendarBitmap(eventsJson, bmpWidth, bmpHeight);
         views.setImageViewBitmap(R.id.widget_calendar_image, calendarBitmap);
 
         // Launch Events/Calendar screen directly on tap
@@ -91,9 +126,7 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
-    private static Bitmap renderMonthCalendarBitmap(String eventsJsonStr) {
-        int width = 480;
-        int height = 360;
+    private static Bitmap renderMonthCalendarBitmap(String eventsJsonStr, int width, int height) {
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         canvas.drawColor(Color.TRANSPARENT);
@@ -117,62 +150,84 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
         int dow = firstDayCal.get(Calendar.DAY_OF_WEEK); // Sun=1, Mon=2..Sat=7
         int startOffset = (dow == Calendar.SUNDAY) ? 6 : (dow - Calendar.MONDAY);
 
-        // Header: Month Year
-        Paint headerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        headerPaint.setColor(Color.parseColor("#1C1917"));
-        headerPaint.setTextSize(26f);
-        headerPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        String monthTitle = MONTH_NAMES_RU[month] + " " + year;
-        canvas.drawText(monthTitle, 10f, 30f, headerPaint);
+        // Use exact required rows (5 for most months, 6 only when needed) so cells are ~20% taller
+        int totalRows = Math.max(5, Math.min(6, (startOffset + daysInMonth + 6) / 7));
 
-        // Small legend dots in top-right of calendar
+        float colWidth = width / 7f;
+        float headerHeight = Math.max(34f, height * 0.145f);
+        float weekdayHeight = Math.max(26f, height * 0.11f);
+
+        // Header: Bold Month & Year
+        Paint headerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        headerPaint.setColor(Color.parseColor("#111827"));
+        headerPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        float headerFontSize = Math.min(headerHeight * 0.78f, width * 0.072f);
+        headerPaint.setTextSize(headerFontSize);
+        Paint.FontMetrics headerFm = headerPaint.getFontMetrics();
+        float headerBaseline = (headerHeight / 2f) - (headerFm.ascent + headerFm.descent) / 2f;
+        String monthTitle = MONTH_NAMES_RU[month] + " " + year;
+        canvas.drawText(monthTitle, 4f, headerBaseline, headerPaint);
+
+        // Compact workload legend dots in top-right of calendar header
+        float legendDotR = Math.max(4.5f, Math.min(7.5f, headerHeight * 0.16f));
+        float legendY = headerHeight * 0.5f;
+        float legendGap = legendDotR * 3.0f;
         Paint legendDotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         legendDotPaint.setColor(Color.parseColor("#16A34A"));
-        canvas.drawCircle(width - 74f, 21f, 6f, legendDotPaint);
+        canvas.drawCircle(width - legendGap * 2.5f, legendY, legendDotR, legendDotPaint);
         legendDotPaint.setColor(Color.parseColor("#D97706"));
-        canvas.drawCircle(width - 52f, 21f, 6f, legendDotPaint);
+        canvas.drawCircle(width - legendGap * 1.5f, legendY, legendDotR, legendDotPaint);
         legendDotPaint.setColor(Color.parseColor("#E11D48"));
-        canvas.drawCircle(width - 30f, 21f, 6f, legendDotPaint);
+        canvas.drawCircle(width - legendGap * 0.5f, legendY, legendDotR, legendDotPaint);
 
-        // Weekday headers
-        float gridTop = 48f;
-        float colWidth = width / 7f;
+        // Weekday headers (crisp, bold, high-contrast)
+        float weekdayTop = headerHeight;
         Paint weekdayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        weekdayPaint.setTextSize(17f);
+        float weekdayFontSize = Math.min(weekdayHeight * 0.78f, colWidth * 0.40f);
+        weekdayPaint.setTextSize(weekdayFontSize);
         weekdayPaint.setTextAlign(Paint.Align.CENTER);
         weekdayPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        Paint.FontMetrics weekdayFm = weekdayPaint.getFontMetrics();
+        float weekdayBaseline = weekdayTop + (weekdayHeight / 2f) - (weekdayFm.ascent + weekdayFm.descent) / 2f;
 
         for (int c = 0; c < 7; c++) {
-            weekdayPaint.setColor(c >= 5 ? Color.parseColor("#E11D48") : Color.parseColor("#78716C"));
-            canvas.drawText(WEEKDAYS_RU[c], c * colWidth + colWidth / 2f, gridTop + 16f, weekdayPaint);
+            weekdayPaint.setColor(c >= 5 ? Color.parseColor("#DC2626") : Color.parseColor("#57534E"));
+            canvas.drawText(WEEKDAYS_RU[c], c * colWidth + colWidth / 2f, weekdayBaseline, weekdayPaint);
         }
 
-        // Day grid (6 rows x 7 cols)
-        float cellsTop = gridTop + 28f;
-        float cellsHeight = height - cellsTop - 4f;
-        float rowHeight = cellsHeight / 6f;
+        // Day grid (5 or 6 rows x 7 cols)
+        float cellsTop = weekdayTop + weekdayHeight + 2f;
+        float cellsHeight = height - cellsTop - 2f;
+        float rowHeight = cellsHeight / (float) totalRows;
 
         Paint cellFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         Paint cellBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         cellBorderPaint.setStyle(Paint.Style.STROKE);
-        cellBorderPaint.setStrokeWidth(3f);
+        cellBorderPaint.setStrokeWidth(Math.max(3f, rowHeight * 0.065f));
 
         Paint dayTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        dayTextPaint.setTextSize(20f);
+        float dayFontSize = Math.min(rowHeight * 0.62f, colWidth * 0.56f);
+        dayTextPaint.setTextSize(dayFontSize);
         dayTextPaint.setTextAlign(Paint.Align.CENTER);
+        dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        Paint.FontMetrics dayFm = dayTextPaint.getFontMetrics();
 
         Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float cellMarginX = Math.max(1.5f, colWidth * 0.03f);
+        float cellMarginY = Math.max(1.5f, rowHeight * 0.04f);
+        float cornerRadius = Math.max(8f, Math.min(14f, rowHeight * 0.22f));
+        float dotRadius = Math.max(2.5f, Math.min(4.2f, rowHeight * 0.07f));
 
         for (int day = 1; day <= daysInMonth; day++) {
             int cellIndex = startOffset + (day - 1);
             int row = cellIndex / 7;
             int col = cellIndex % 7;
-            if (row >= 6) break;
+            if (row >= totalRows) break;
 
-            float left = col * colWidth + 3f;
-            float top = cellsTop + row * rowHeight + 2f;
-            float right = (col + 1) * colWidth - 3f;
-            float bottom = cellsTop + (row + 1) * rowHeight - 2f;
+            float left = col * colWidth + cellMarginX;
+            float top = cellsTop + row * rowHeight + cellMarginY;
+            float right = (col + 1) * colWidth - cellMarginX;
+            float bottom = cellsTop + (row + 1) * rowHeight - cellMarginY;
             RectF rect = new RectF(left, top, right, bottom);
 
             String key = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day);
@@ -180,50 +235,46 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
             boolean isToday = (day == todayDay);
             boolean isWeekend = (col >= 5);
 
-            // Background color by workload
+            // High-contrast background color by workload
             if (load >= 4) {
-                cellFillPaint.setColor(Color.parseColor("#FFE4E6"));
-                canvas.drawRoundRect(rect, 10f, 10f, cellFillPaint);
+                cellFillPaint.setColor(Color.parseColor("#FECDD3"));
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, cellFillPaint);
             } else if (load >= 2) {
-                cellFillPaint.setColor(Color.parseColor("#FEF3C7"));
-                canvas.drawRoundRect(rect, 10f, 10f, cellFillPaint);
+                cellFillPaint.setColor(Color.parseColor("#FDE68A"));
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, cellFillPaint);
             } else if (load == 1) {
-                cellFillPaint.setColor(Color.parseColor("#DCFCE7"));
-                canvas.drawRoundRect(rect, 10f, 10f, cellFillPaint);
+                cellFillPaint.setColor(Color.parseColor("#BBF7D0"));
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, cellFillPaint);
             } else if (isToday) {
-                cellFillPaint.setColor(Color.parseColor("#FEF9C3"));
-                canvas.drawRoundRect(rect, 10f, 10f, cellFillPaint);
+                cellFillPaint.setColor(Color.parseColor("#FEF08A"));
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, cellFillPaint);
             }
 
-            // Today outline highlight
+            // Strong Today outline highlight
             if (isToday) {
-                cellBorderPaint.setColor(Color.parseColor("#D97706"));
-                canvas.drawRoundRect(rect, 10f, 10f, cellBorderPaint);
+                cellBorderPaint.setColor(Color.parseColor("#B45309"));
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, cellBorderPaint);
             }
 
-            // Day number color
+            // High-contrast bold day number color
             if (load >= 4) {
-                dayTextPaint.setColor(Color.parseColor("#BE123C"));
-                dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                dayTextPaint.setColor(Color.parseColor("#9F1239"));
             } else if (load >= 2) {
-                dayTextPaint.setColor(Color.parseColor("#B45309"));
-                dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                dayTextPaint.setColor(Color.parseColor("#78350F"));
             } else if (load == 1) {
-                dayTextPaint.setColor(Color.parseColor("#15803D"));
-                dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                dayTextPaint.setColor(Color.parseColor("#14532D"));
             } else if (isToday) {
-                dayTextPaint.setColor(Color.parseColor("#92400E"));
-                dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                dayTextPaint.setColor(Color.parseColor("#78350F"));
             } else {
-                dayTextPaint.setColor(isWeekend ? Color.parseColor("#E11D48") : Color.parseColor("#292524"));
-                dayTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+                dayTextPaint.setColor(isWeekend ? Color.parseColor("#DC2626") : Color.parseColor("#1C1917"));
             }
 
             float centerX = rect.centerX();
-            float textY = rect.centerY() + (load > 0 ? 4f : 7f);
+            float verticalOffset = load > 0 ? -(rowHeight * 0.07f) : 0f;
+            float textY = rect.centerY() + verticalOffset - (dayFm.ascent + dayFm.descent) / 2f;
             canvas.drawText(String.valueOf(day), centerX, textY, dayTextPaint);
 
-            // Workload indicator dots at bottom of cell
+            // Workload indicator dots cleanly placed at bottom of cell
             if (load > 0) {
                 int dotCount = Math.min(load, 3);
                 if (load >= 4) {
@@ -233,11 +284,11 @@ public class NotebookWidgetProvider extends AppWidgetProvider {
                 } else {
                     dotPaint.setColor(Color.parseColor("#16A34A"));
                 }
-                float spacing = 7f;
+                float spacing = dotRadius * 2.8f;
                 float startX = centerX - ((dotCount - 1) * spacing) / 2f;
-                float dotY = bottom - 6f;
+                float dotY = bottom - dotRadius - Math.max(2f, rowHeight * 0.05f);
                 for (int d = 0; d < dotCount; d++) {
-                    canvas.drawCircle(startX + d * spacing, dotY, 2.5f, dotPaint);
+                    canvas.drawCircle(startX + d * spacing, dotY, dotRadius, dotPaint);
                 }
             }
         }

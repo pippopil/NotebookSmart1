@@ -1,7 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { Note, ArchivedBudgetMonth } from '../types';
 import { analyzeNote, formatMoney } from '../utils/mathEngine';
-import { SpendingReportChart } from './SpendingReportChart';
+import {
+  SpendingReportChart,
+  SpendingGroupBy,
+  SpendingSliceSelection,
+  UNTAGGED_SLICE_KEY,
+  NOTE_CATEGORY_META,
+} from './SpendingReportChart';
+import { normalizeTag } from '../services/aiTagging';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -75,13 +82,96 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
 Остаток бюджета:`
   );
   const [copiedRes, setCopiedRes] = useState<string | null>(null);
-  const [filterTag, setFilterTag] = useState<string | null>(null);
+  const [spendingGroupBy, setSpendingGroupBy] = useState<SpendingGroupBy>('categories');
+  const [spendingFilter, setSpendingFilter] = useState<SpendingSliceSelection | null>(null);
   const [monthlyChartType, setMonthlyChartType] = useState<'area' | 'bar'>('area');
   const [includeCurrentInMonthly, setIncludeCurrentInMonthly] = useState<boolean>(false);
   const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
 
+  const handleSpendingGroupByChange = useCallback((nextMode: SpendingGroupBy) => {
+    setSpendingGroupBy(nextMode);
+    setSpendingFilter(null);
+  }, []);
+
   // Scratchpad live calculations (explicitly in money mode)
   const scratchpadSummary = useMemo(() => analyzeNote(scratchpadText, 'payment', true), [scratchpadText]);
+  const scratchpadRawLines = useMemo(() => scratchpadText.split('\n'), [scratchpadText]);
+
+  // Synchronized scratchpad layout refs & per-line wrapped height measurement
+  const scratchpadEditorColRef = useRef<HTMLDivElement>(null);
+  const scratchpadMirrorRef = useRef<HTMLDivElement>(null);
+  const [scratchpadLineHeights, setScratchpadLineHeights] = useState<number[]>([]);
+  const SCRATCHPAD_LINE_HEIGHT = 28;
+
+  const measureScratchpadLines = useCallback(() => {
+    const mirror = scratchpadMirrorRef.current;
+    if (!mirror) return;
+    const children = mirror.children;
+    const next: number[] = new Array(children.length);
+    for (let i = 0; i < children.length; i++) {
+      const h = (children[i] as HTMLElement).getBoundingClientRect().height;
+      const rows = Math.max(1, Math.round(h / SCRATCHPAD_LINE_HEIGHT));
+      next[i] = rows * SCRATCHPAD_LINE_HEIGHT;
+    }
+    setScratchpadLineHeights((prev) =>
+      prev.length === next.length && prev.every((v, idx) => v === next[idx]) ? prev : next
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    measureScratchpadLines();
+  }, [measureScratchpadLines, scratchpadRawLines]);
+
+  useEffect(() => {
+    const col = scratchpadEditorColRef.current;
+    if (!col || typeof ResizeObserver === 'undefined') return;
+    let rafId = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(measureScratchpadLines);
+    });
+    observer.observe(col);
+    return () => {
+      cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [measureScratchpadLines]);
+
+  const scratchpadContentHeight = useMemo(() => {
+    const sum =
+      scratchpadLineHeights.length === scratchpadRawLines.length && scratchpadLineHeights.length > 0
+        ? scratchpadLineHeights.reduce((acc, h) => acc + h, 0)
+        : scratchpadRawLines.length * SCRATCHPAD_LINE_HEIGHT;
+    return Math.max(224, sum + 28 + SCRATCHPAD_LINE_HEIGHT);
+  }, [scratchpadLineHeights, scratchpadRawLines.length]);
+
+  // Filtered financial notes for the two-column sticky ledger
+  const financialNotes = useMemo(() => {
+    if (!globalAutoCalculate) return [];
+    return notes
+      .filter(
+        (n) =>
+          !n.isArchived &&
+          ((n.cachedTotal || 0) !== 0 ||
+            (n.cachedIncome || 0) > 0 ||
+            (n.cachedExpenses || 0) > 0 ||
+            n.category === 'payment')
+      )
+      .filter((n) => {
+        if (!spendingFilter) return true;
+        if (spendingFilter.groupBy === 'categories') {
+          const catMeta = NOTE_CATEGORY_META[n.category] || NOTE_CATEGORY_META.note;
+          return catMeta.key === spendingFilter.key;
+        }
+        const normalizedTags = (n.tags || [])
+          .map((t) => normalizeTag(t))
+          .filter((t) => t.length > 1);
+        if (spendingFilter.key === UNTAGGED_SLICE_KEY) {
+          return normalizedTags.length === 0;
+        }
+        return normalizedTags.includes(spendingFilter.key);
+      });
+  }, [notes, globalAutoCalculate, spendingFilter]);
 
   // Aggregate financial stats across all active notes when globalAutoCalculate is ON
   const financialTotals = useMemo(() => {
@@ -338,7 +428,7 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer ${
                   globalAutoCalculate
                     ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
-                    : 'bg-stone-100 dark:bg-stone-850 border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                    : 'bg-stone-100 dark:bg-stone-800 border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300'
                 }`}
               >
                 <span>Автоматический расчёт</span>
@@ -740,136 +830,286 @@ export const CalculatorView: React.FC<CalculatorViewProps> = ({
         )}
       </div>
 
-      {/* VISUAL RECHARTS SPENDING REPORT (Categorized by note tags) */}
+      {/* VISUAL RECHARTS SPENDING REPORT (General Categories vs Custom Note Tags) */}
       <SpendingReportChart
         notes={notes}
         globalAutoCalculate={globalAutoCalculate}
-        onSelectTag={(tag) => setFilterTag(filterTag === tag ? null : tag)}
+        groupBy={spendingGroupBy}
+        onGroupByChange={handleSpendingGroupByChange}
+        activeFilterKey={spendingFilter?.key ?? null}
+        onSelectSlice={setSpendingFilter}
       />
 
-      {/* SMART FINANCIAL SCRATCHPAD (Live Smart Notebook Calculator) */}
-      <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 mb-6 shadow-sm transition-colors">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
+      {/* SMART FINANCIAL SCRATCHPAD (Unified Single-Scroll Lockstep Columns) */}
+      <div className="bg-white dark:bg-stone-900 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-4 sm:p-5 mb-6 shadow-sm transition-colors">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-1.5">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <h3 className="font-bold text-base text-stone-900 dark:text-white">Быстрый финансовый черновик</h3>
           </div>
           <span className="text-xs text-stone-500 dark:text-stone-400">
-            Пишите числа, проценты и слова — результат считается на лету
+            Пишите числа, проценты и слова — результат закреплён напротив каждой строки
           </span>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Input text */}
-          <div className="flex-1">
-            <textarea
-              value={scratchpadText}
-              onChange={(e) => setScratchpadText(e.target.value)}
-              rows={8}
-              className="w-full bg-[#fffdf9] dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-mono text-xs sm:text-sm p-3.5 rounded-2xl border border-amber-900/15 dark:border-stone-800 focus:outline-none focus:border-amber-500 resize-none leading-6 selectable-text shadow-2xs"
-            />
+        {/* Shared scroll container so left expressions and right results always scroll in lockstep */}
+        <div className="rounded-2xl border border-amber-900/15 dark:border-stone-800 bg-[#fffdf9] dark:bg-stone-950 overflow-hidden shadow-2xs">
+          {/* Sticky column labels */}
+          <div className="flex items-center border-b border-amber-900/10 dark:border-stone-800 bg-stone-50/95 dark:bg-stone-900/95 text-[11px] font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
+            <div className="flex-1 min-w-0 px-3.5 py-2">Выражения</div>
+            <div className="w-32 sm:w-44 shrink-0 px-3 py-2 text-right border-l border-amber-900/10 dark:border-stone-800">
+              Результат
+            </div>
           </div>
 
-          {/* Results column */}
-          <div className="sm:w-44 bg-stone-50 dark:bg-stone-950 rounded-2xl p-3.5 border border-stone-200 dark:border-stone-800 flex flex-col justify-between font-mono">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider block mb-2">
-                Построчный расчет:
-              </span>
-              <div className="space-y-1.5 text-xs max-h-48 overflow-y-auto">
-                {scratchpadSummary.lines.map((l, idx) => (
-                  <div key={idx} className="flex items-center justify-between h-5">
-                    <span className="text-stone-500 text-[10px] truncate max-w-[70px]">
-                      {l.label || `стр ${idx + 1}`}
-                    </span>
-                    {l.result !== null ? (
-                      <button
-                        onClick={() => handleCopy(`${l.result} ₽`)}
-                        className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
-                        title="Скопировать"
+          <div className="max-h-72 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+            <div className="flex items-stretch min-h-[224px]">
+              {/* Left Column: Textarea + Invisible Mirror */}
+              <div
+                ref={scratchpadEditorColRef}
+                className="flex-1 min-w-0 relative px-3.5"
+              >
+                <div
+                  ref={scratchpadMirrorRef}
+                  aria-hidden="true"
+                  style={{
+                    lineHeight: `${SCRATCHPAD_LINE_HEIGHT}px`,
+                    paddingTop: '12px',
+                    wordBreak: 'normal',
+                    overflowWrap: 'break-word',
+                  }}
+                  className="pointer-events-none invisible absolute top-0 left-3.5 right-3.5 font-mono text-xs sm:text-sm font-medium whitespace-pre-wrap select-none"
+                >
+                  {scratchpadRawLines.map((line, idx) => (
+                    <div key={idx}>{line.length > 0 ? line : '\u00A0'}</div>
+                  ))}
+                </div>
+
+                <textarea
+                  value={scratchpadText}
+                  onChange={(e) => setScratchpadText(e.target.value)}
+                  onScroll={(e) => {
+                    if (e.currentTarget.scrollTop !== 0) e.currentTarget.scrollTop = 0;
+                  }}
+                  style={{
+                    lineHeight: `${SCRATCHPAD_LINE_HEIGHT}px`,
+                    height: `${scratchpadContentHeight}px`,
+                    paddingTop: '12px',
+                    paddingBottom: '16px',
+                    wordBreak: 'normal',
+                    overflowWrap: 'break-word',
+                  }}
+                  className="block w-full bg-transparent text-stone-900 dark:text-stone-100 font-mono text-xs sm:text-sm font-medium focus:outline-none resize-none overflow-hidden selectable-text p-0 m-0 border-0"
+                />
+              </div>
+
+              {/* Right Column: Line-aligned Calculation Results inside the SAME scroll viewport */}
+              <div
+                style={{ paddingTop: '12px', paddingBottom: '16px' }}
+                className="w-32 sm:w-44 shrink-0 px-2.5 sm:px-3 bg-stone-50/75 dark:bg-stone-900/60 border-l border-amber-900/10 dark:border-stone-800 font-mono text-xs select-none"
+              >
+                {scratchpadSummary.lines.map((l, idx) => {
+                  const rowHeight = scratchpadLineHeights[idx] ?? SCRATCHPAD_LINE_HEIGHT;
+                  return (
+                    <div
+                      key={idx}
+                      style={{ height: `${rowHeight}px` }}
+                      className="flex items-start justify-end"
+                    >
+                      <div
+                        style={{
+                          height: `${SCRATCHPAD_LINE_HEIGHT}px`,
+                          lineHeight: `${SCRATCHPAD_LINE_HEIGHT}px`,
+                        }}
+                        className="w-full flex items-center justify-end"
                       >
-                        = {formatMoney(l.result, l.currency)}
-                      </button>
-                    ) : (
-                      <span className="text-stone-400 dark:text-stone-600">—</span>
-                    )}
-                  </div>
-                ))}
+                        {l.result !== null ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(`${l.result} ${l.currency || '₽'}`)}
+                            className={`px-1.5 py-0.5 rounded-md font-bold text-[11px] sm:text-xs whitespace-nowrap max-w-full truncate hover:underline cursor-pointer ${
+                              l.isTotalLine
+                                ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-950 dark:text-amber-200'
+                                : l.type === 'expense'
+                                ? 'text-rose-700 dark:text-rose-400'
+                                : 'text-emerald-700 dark:text-emerald-400'
+                            }`}
+                            title="Скопировать результат"
+                          >
+                            {l.isTotalLine
+                              ? `= ${formatMoney(l.result, l.currency)}`
+                              : l.type === 'expense'
+                              ? `−${formatMoney(l.result, l.currency)}`
+                              : l.type === 'income'
+                              ? `+${formatMoney(l.result, l.currency)}`
+                              : `= ${formatMoney(l.result, l.currency)}`}
+                          </button>
+                        ) : (
+                          <span className="text-stone-400 dark:text-stone-600">—</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
+          </div>
 
-            <div className="pt-3 border-t border-stone-200 dark:border-stone-800 mt-2">
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 block uppercase font-medium">Итог:</span>
-              <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
-                {formatMoney(scratchpadSummary.grandTotal, scratchpadSummary.currency)}
-              </span>
-            </div>
+          {/* Fixed Bottom Grand Total Bar */}
+          <div className="px-3.5 py-2.5 border-t border-amber-900/10 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 flex items-center justify-between gap-2 font-mono">
+            <span className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
+              Итог черновика:
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                handleCopy(formatMoney(scratchpadSummary.grandTotal, scratchpadSummary.currency))
+              }
+              className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+              title="Нажмите, чтобы скопировать итог"
+            >
+              {formatMoney(scratchpadSummary.grandTotal, scratchpadSummary.currency)}
+            </button>
           </div>
         </div>
 
         {copiedRes && (
-          <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+          <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1">
             <Check className="w-3.5 h-3.5" />
             <span>Скопировано: {copiedRes}</span>
           </div>
         )}
       </div>
 
-      {/* Existing Notes with Financial Totals */}
-      <div className="bg-white/80 dark:bg-stone-900/60 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-5 shadow-2xs">
-        <div className="flex items-center justify-between mb-3">
+      {/* Existing Notes with Financial Totals — Shared Scroll + Sticky Left Note Column */}
+      <div className="bg-white/90 dark:bg-stone-900/80 border border-amber-900/10 dark:border-stone-800 rounded-3xl p-4 sm:p-5 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
           <h3 className="font-bold text-base text-stone-900 dark:text-white flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <Receipt className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>Все заметки с финансовыми расчётами</span>
           </h3>
-          {filterTag && (
+          {spendingFilter && (
             <button
-              onClick={() => setFilterTag(null)}
+              type="button"
+              onClick={() => setSpendingFilter(null)}
               className="text-xs text-amber-700 dark:text-amber-400 font-bold hover:underline cursor-pointer"
             >
-              Сбросить фильтр ({filterTag})
+              Сбросить фильтр ({spendingFilter.groupBy === 'categories' ? 'Категория: ' : 'Тег: '}
+              {spendingFilter.label})
             </button>
           )}
         </div>
 
-        <div className="space-y-2.5">
-          {!globalAutoCalculate ? (
-            <p className="text-xs text-stone-500 dark:text-stone-400 py-4 text-center">
-              Автоматический расчёт отключён во всех заметках. Включите переключатель выше для отображения списка финансовых заметок.
-            </p>
-          ) : (
-            notes
-            .filter(
-              (n) =>
-                !n.isArchived &&
-                ((n.cachedTotal || 0) !== 0 || (n.cachedIncome || 0) > 0 || (n.cachedExpenses || 0) > 0 || n.category === 'payment')
-            )
-            .filter((n) => {
-              if (!filterTag) return true;
-              return (n.tags || []).some(
-                (t) => (t.startsWith('#') ? t : `#${t}`).toLowerCase() === filterTag.toLowerCase()
-              );
-            })
-            .map((n) => (
-              <div
-                key={n.id}
-                onClick={() => onOpenNote(n)}
-                className="bg-white dark:bg-stone-950/80 hover:bg-stone-50 dark:hover:bg-stone-950 border border-stone-200 dark:border-stone-800 hover:border-amber-400 dark:hover:border-stone-700 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer transition shadow-2xs"
-              >
-                <div className="min-w-0 pr-3">
-                  <h4 className="font-semibold text-sm text-stone-900 dark:text-white truncate">{n.title || 'Заметка с расчётом'}</h4>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-0.5">{n.content}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono block">
-                    {formatMoney(n.cachedTotal || 0, n.currency || '₽')}
-                  </span>
-                  <span className="text-[10px] text-stone-400">Открыть →</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        {!globalAutoCalculate ? (
+          <p className="text-xs text-stone-500 dark:text-stone-400 py-4 text-center">
+            Автоматический расчёт отключён во всех заметках. Включите переключатель выше для отображения списка финансовых заметок.
+          </p>
+        ) : financialNotes.length === 0 ? (
+          <p className="text-xs text-stone-500 dark:text-stone-400 py-6 text-center">
+            Нет активных заметок с финансовыми выражениями
+            {spendingFilter
+              ? spendingFilter.groupBy === 'categories'
+                ? ` в категории «${spendingFilter.label}»`
+                : ` по тегу ${spendingFilter.label}`
+              : ''}
+            .
+          </p>
+        ) : (
+          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 overflow-hidden bg-white dark:bg-stone-950/80">
+            {/* Shared vertical & horizontal scroll viewport with sticky header and sticky left note-title column */}
+            <div className="max-h-[420px] overflow-auto overscroll-contain">
+              <table className="w-full border-collapse text-left">
+                <thead className="sticky top-0 z-20 bg-stone-100/95 dark:bg-stone-900/95 backdrop-blur-xs border-b border-stone-200 dark:border-stone-800 text-[11px] font-extrabold uppercase tracking-wider text-stone-600 dark:text-stone-300">
+                  <tr>
+                    <th className="sticky left-0 z-30 bg-stone-100/95 dark:bg-stone-900/95 py-2.5 px-3.5 min-w-[165px] sm:min-w-[240px] border-r border-stone-200/80 dark:border-stone-800">
+                      Заметка и выражения
+                    </th>
+                    <th className="py-2.5 px-3.5 text-right whitespace-nowrap min-w-[140px]">
+                      Результаты расчёта
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-200/80 dark:divide-stone-800/80">
+                  {financialNotes.map((n) => {
+                    const inc = n.cachedIncome || 0;
+                    const exp = n.cachedExpenses || 0;
+                    const curr = n.currency || '₽';
+                    const net = inc > 0 || exp > 0 ? inc - exp : n.cachedTotal || 0;
+                    const displayTags = Array.from(
+                      new Set(
+                        (n.tags || [])
+                          .map((t) => normalizeTag(t))
+                          .filter((t) => t.length > 1)
+                      )
+                    ).slice(0, 3);
+
+                    return (
+                      <tr
+                        key={n.id}
+                        onClick={() => onOpenNote(n)}
+                        className="group hover:bg-amber-50/50 dark:hover:bg-stone-900/90 cursor-pointer transition-colors align-middle"
+                      >
+                        {/* Left Column: Sticky Note Title & Expression Preview locked directly opposite the right result */}
+                        <td className="sticky left-0 z-10 bg-white dark:bg-stone-950 group-hover:bg-amber-50/90 dark:group-hover:bg-stone-900 py-3 px-3.5 border-r border-stone-200/80 dark:border-stone-800 max-w-[210px] sm:max-w-[360px] transition-colors">
+                          <h4 className="font-bold text-sm text-stone-950 dark:text-white truncate leading-snug">
+                            {n.title || 'Заметка с расчётом'}
+                          </h4>
+                          <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-1 mt-0.5 leading-relaxed">
+                            {n.content}
+                          </p>
+                          {displayTags.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {displayTags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="px-1.5 py-0.2 rounded-md bg-amber-100/80 dark:bg-stone-800 text-amber-900 dark:text-amber-300 font-mono text-[10px] font-semibold"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Right Column: Calculation Results aligned strictly on the same row */}
+                        <td className="py-3 px-3.5 text-right whitespace-nowrap font-mono">
+                          <div className="inline-flex flex-col items-end gap-0.5">
+                            <span
+                              className={`text-sm font-extrabold ${
+                                net < 0
+                                  ? 'text-rose-700 dark:text-rose-400'
+                                  : 'text-emerald-700 dark:text-emerald-400'
+                              }`}
+                            >
+                              {formatMoney(net, curr)}
+                            </span>
+                            {(inc > 0 || exp > 0) && (
+                              <div className="flex items-center justify-end gap-2 text-[11px] font-bold">
+                                {inc > 0 && (
+                                  <span className="text-emerald-700 dark:text-emerald-400">
+                                    +{formatMoney(inc, curr)}
+                                  </span>
+                                )}
+                                {exp > 0 && (
+                                  <span className="text-rose-700 dark:text-rose-400">
+                                    −{formatMoney(exp, curr)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <span className="text-[11px] font-sans font-semibold text-amber-700 dark:text-amber-400">
+                              Открыть →
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -15,7 +15,10 @@ import {
   EyeOff,
   BotOff,
   Trash2,
+  Download,
 } from 'lucide-react';
+import { Note, ArchivedBudgetMonth, ArchivedShoppingTrip } from '../types';
+import { triggerTextFileDownload } from '../utils/exportFormats';
 import {
   TimezoneMode,
   getTimezoneLabel,
@@ -44,6 +47,9 @@ import { ThemeToggle } from './ThemeToggle';
 interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  notes?: Note[];
+  archivedBudgets?: ArchivedBudgetMonth[];
+  archivedShopping?: ArchivedShoppingTrip[];
   timezoneMode: TimezoneMode;
   onTimezoneModeChange: (mode: TimezoneMode) => void;
   globalAutoCalculate?: boolean;
@@ -56,6 +62,9 @@ interface AppSettingsModalProps {
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   isOpen,
   onClose,
+  notes = [],
+  archivedBudgets = [],
+  archivedShopping = [],
   timezoneMode,
   onTimezoneModeChange,
   globalAutoCalculate = true,
@@ -74,6 +83,28 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   const [aiConsentState, setAiConsentState] = useState<boolean>(() => hasAiConsent());
   const [aiLogCount, setAiLogCount] = useState<number>(() => getAiCallLogs().length);
   const [recalcDone, setRecalcDone] = useState(false);
+  const [jsonExportStatus, setJsonExportStatus] = useState<string | null>(null);
+
+  const handleExportAllNotesJson = () => {
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const backupPayload = {
+      app: 'NotebookSmart',
+      formatVersion: 2,
+      exportedAt: new Date().toISOString(),
+      totalNotes: notes.length,
+      notes,
+      archivedBudgets,
+      archivedShopping,
+    };
+    const jsonString = JSON.stringify(backupPayload, null, 2);
+    triggerTextFileDownload(
+      jsonString,
+      `notebook-smart-backup-${dateStamp}.json`,
+      'application/json;charset=utf-8'
+    );
+    setJsonExportStatus(`Экспортировано заметок: ${notes.length}`);
+    setTimeout(() => setJsonExportStatus(null), 3500);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -539,6 +570,43 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                   />
                 </div>
               </button>
+            </div>
+          </div>
+
+          {/* SECTION 2.5: LOCAL JSON BACKUP EXPORT */}
+          <div className="bg-stone-50 dark:bg-stone-800/80 rounded-2xl p-4 border border-stone-200 dark:border-stone-800 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="p-2 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-bold text-sm text-stone-900 dark:text-white">
+                    Резервная копия заметок (JSON)
+                  </h4>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                    Скачайте локальный JSON-файл со всеми заметками ({notes.length}) и архивами для надёжного хранения на устройстве
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleExportAllNotesJson}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-sm transition active:scale-95 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Экспортировать все заметки в JSON</span>
+              </button>
+
+              {jsonExportStatus && (
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{jsonExportStatus}</span>
+                </span>
+              )}
             </div>
           </div>
 

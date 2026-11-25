@@ -3,6 +3,10 @@ import { Note, NoteCategory, PaperStyleType, EventCategory, EVENT_CATEGORY_CONFI
 import { analyzeNote, formatMoney } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
 import {
+  detectSmartCategory,
+  SmartSuggestedCategory,
+} from '../utils/smartCategoryDetector';
+import {
   ArrowLeft,
   Trash2,
   Share2,
@@ -89,19 +93,27 @@ import { getGlobalAutoCalculate } from '../services/storage';
 interface NoteEditorProps {
   note: Note;
   globalAutoCalculate?: boolean;
+  autoStartDictation?: boolean;
   onUpdate: (updated: Note) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
   onOpenShopping: (note: Note) => void;
+  onCreateVoiceNote?: (
+    dictatedTitle: string,
+    dictatedContent: string,
+    startImmediately?: boolean
+  ) => void;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   globalAutoCalculate,
+  autoStartDictation = false,
   onUpdate,
   onDelete,
   onClose,
   onOpenShopping,
+  onCreateVoiceNote,
 }) => {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
@@ -155,8 +167,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   // Tags & AI Auto-tagging state
   const [tags, setTags] = useState<string[]>(note.tags || []);
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
+  const [dismissedSuggestedCategories, setDismissedSuggestedCategories] = useState<
+    SmartSuggestedCategory[]
+  >([]);
   const [isLoadingAiTags, setIsLoadingAiTags] = useState<boolean>(false);
   const [tagInput, setTagInput] = useState<string>('');
+  const [isTagManagerOpen, setIsTagManagerOpen] = useState<boolean>(false);
   const [isAiSource, setIsAiSource] = useState<boolean>(false);
   const [showAiConsentPrompt, setShowAiConsentPrompt] = useState<boolean>(false);
   const [voiceFinanceNotice, setVoiceFinanceNotice] = useState<VoiceFinanceMatch | null>(null);
@@ -318,6 +334,41 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const shoppingItems = useMemo(() => extractShoppingItems(content), [content]);
   const rawLines = useMemo(() => content.split('\n'), [content]);
 
+  // Real-time smart category suggestion ('Финансы', 'Покупки', 'Событие') based on note text
+  const smartCategorySuggestion = useMemo(() => {
+    const detected = detectSmartCategory(title, content, category, {
+      calcSummary: mathSummary,
+      shoppingItemsCount: shoppingItems.length,
+    });
+    if (!detected) return null;
+    if (dismissedSuggestedCategories.includes(detected.category)) return null;
+    return detected;
+  }, [title, content, category, mathSummary, shoppingItems.length, dismissedSuggestedCategories]);
+
+  const handleApplySuggestedCategory = useCallback(() => {
+    if (!smartCategorySuggestion) return;
+    nativeHaptic('medium');
+    setCategory(smartCategorySuggestion.category);
+
+    if (smartCategorySuggestion.category === 'event') {
+      if (!eventDate && smartCategorySuggestion.extractedEventDate) {
+        setEventDate(smartCategorySuggestion.extractedEventDate);
+      }
+      if (!eventTime && smartCategorySuggestion.extractedEventTime) {
+        setEventTime(smartCategorySuggestion.extractedEventTime);
+      }
+      if (smartCategorySuggestion.extractedEventSubcategory) {
+        setEventCategory(smartCategorySuggestion.extractedEventSubcategory);
+      }
+    }
+
+    setDismissedSuggestedCategories((prev) =>
+      prev.filter((c) => c !== smartCategorySuggestion.category)
+    );
+    setCopiedText(`✓ Категория изменена на «${smartCategorySuggestion.label}»`);
+    setTimeout(() => setCopiedText(null), 2200);
+  }, [smartCategorySuggestion, eventDate, eventTime]);
+
   // Measure the exact visual height of each logical line (including soft wraps on mobile)
   // so every result pill in Column 2 stays strictly aligned opposite its source line in Column 1.
   const measureLineHeights = useCallback(() => {
@@ -467,9 +518,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     const norm = normalizeTag(tagToAdd);
     if (!norm) return;
     triggerHaptic(10);
-    if (!tags.includes(norm)) {
-      setTags((prev) => [...prev, norm]);
-    }
+    setTags((prev) =>
+      prev.some((t) => t.toLowerCase() === norm.toLowerCase()) ? prev : [...prev, norm]
+    );
     setSuggestedTags((prev) => prev.filter((t) => t.toLowerCase() !== norm.toLowerCase()));
     setTagInput('');
   };
@@ -505,7 +556,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         setCopiedText('✓ Заметка сохранена');
         setTimeout(() => setCopiedText(null), 1800);
       } else if (e.key === 'Escape') {
-        if (showAiConsentPrompt) {
+        if (isTagManagerOpen) {
+          setIsTagManagerOpen(false);
+        } else if (showAiConsentPrompt) {
           setShowAiConsentPrompt(false);
         } else if (isSocialShareOpen) {
           setIsSocialShareOpen(false);
@@ -536,6 +589,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     paperStyle,
     reminderEnabled,
     reminderDateTime,
+    isTagManagerOpen,
     showAiConsentPrompt,
     isSocialShareOpen,
     showPaperMenu,
@@ -650,6 +704,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       }
     }
 
+    // Auto-generate a concise title when creating a new note purely by voice dictation
+    if (!title.trim() && !content.trim()) {
+      const cleanHeadline = chunkTrimmed.replace(/\s+/g, ' ').trim();
+      const shortTitle =
+        cleanHeadline.length > 48
+          ? `${cleanHeadline.slice(0, 48).replace(/\s+\S*$/, '')}…`
+          : cleanHeadline;
+      if (shortTitle) {
+        setTitle(shortTitle.charAt(0).toUpperCase() + shortTitle.slice(1));
+      }
+    }
+
     const textarea = textareaRef.current;
     if (textarea) {
       const start = textarea.selectionStart;
@@ -695,6 +761,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     lang: 'ru-RU',
     smartPunctuation: useSmartPunctuation,
   });
+
+  // Auto-start Web Speech API dictation when opened via "New Note by Dictation"
+  const autoStartTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (autoStartDictation && isSpeechSupported && !autoStartTriggeredRef.current) {
+      autoStartTriggeredRef.current = true;
+      startListening();
+    }
+  }, [autoStartDictation, isSpeechSupported, startListening]);
 
   // Text formatting: wraps selection with markers, bold, italic or underline
   const wrapSelection = (prefix: string, suffix: string) => {
@@ -960,6 +1035,29 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             )}
           </button>
 
+          {/* Tag Management button in top bar */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              setIsTagManagerOpen(true);
+            }}
+            aria-label="Управление тегами заметки"
+            className={`px-2 py-1.5 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1 border ${
+              tags.length > 0
+                ? 'bg-amber-100/90 hover:bg-amber-200/80 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
+                : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+            }`}
+            title="Управление тегами заметки"
+          >
+            <Tag className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+            {tags.length > 0 && (
+              <span className="text-[11px] font-mono font-extrabold leading-none">
+                {tags.length}
+              </span>
+            )}
+          </button>
+
           {/* Pin note button */}
           <button
             onClick={() => {
@@ -1005,12 +1103,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       {/* UNIFIED SCROLLABLE BODY: Enables full-page vertical scrolling in Events & Notes */}
       <div className="flex-1 overflow-y-auto overscroll-y-contain flex flex-col min-h-0">
 
-      {/* SIMPLIFIED 3-MODE SELECTOR & QUICK STATUS (Compact when keyboard is open or card is lifted) */}
+      {/* SIMPLIFIED 4-MODE SELECTOR & QUICK STATUS (Compact when keyboard is open or card is lifted) */}
       {shouldLiftCard ? (
         <div className="px-3 sm:px-4 py-1.5 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between gap-2 shrink-0 text-xs">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none min-w-0">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-300 font-bold text-[11px] shrink-0">
-              {category === 'shopping' ? (
+              {category === 'payment' || category === 'budget' || category === 'calculation' ? (
+                <Wallet className="w-3 h-3 text-amber-600" />
+              ) : category === 'shopping' ? (
                 <ShoppingCart className="w-3 h-3 text-emerald-600" />
               ) : category === 'event' ? (
                 <Calendar className="w-3 h-3 text-purple-600" />
@@ -1018,11 +1118,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 <FileText className="w-3 h-3 text-blue-600" />
               )}
               <span>
-                {category === 'shopping'
+                {category === 'payment' || category === 'budget' || category === 'calculation'
+                  ? 'Финансы'
+                  : category === 'shopping'
                   ? 'Покупки'
                   : category === 'event'
                   ? 'Событие'
-                  : 'Заметка (умный лист)'}
+                  : 'Заметка'}
               </span>
             </span>
             {tags.slice(0, 3).map((t) => (
@@ -1030,7 +1132,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 key={t}
                 className="text-[10px] font-mono text-stone-600 dark:text-stone-400 bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 rounded-md shrink-0"
               >
-                #{t}
+                {t.startsWith('#') ? t : `#${t}`}
               </span>
             ))}
             {tags.length > 3 && (
@@ -1048,33 +1150,43 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       ) : (
         <div className="px-3 sm:px-4 py-2 bg-stone-50/90 dark:bg-stone-900/90 border-b border-amber-900/10 dark:border-stone-800 shrink-0">
-          <div className="grid grid-cols-3 gap-1.5" data-no-swipe="true">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" data-no-swipe="true">
           {[
-            { id: 'note', label: '📝 Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white', tip: 'Универсальная заметка: расчёты начинаются автоматически' },
-            { id: 'shopping', label: '🛒 Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white', tip: 'Список товаров с отметками' },
-            { id: 'event', label: '📅 Событие', icon: Calendar, activeClass: 'bg-purple-600 text-white', tip: 'Планы, встречи и будильник' },
+            { id: 'note', label: 'Заметка', icon: FileText, activeClass: 'bg-blue-600 text-white', tip: 'Универсальная заметка: расчёты начинаются автоматически' },
+            { id: 'payment', label: 'Финансы', icon: Wallet, activeClass: 'bg-amber-600 text-white', tip: 'Доходы, расходы, бюджет и финансовые расчёты' },
+            { id: 'shopping', label: 'Покупки', icon: ShoppingCart, activeClass: 'bg-emerald-600 text-white', tip: 'Список товаров с отметками' },
+            { id: 'event', label: 'Событие', icon: Calendar, activeClass: 'bg-purple-600 text-white', tip: 'Планы, встречи и будильник' },
           ].map((cat) => {
             const Icon = cat.icon;
             const isSelected =
-              cat.id === 'note'
-                ? category !== 'shopping' && category !== 'event'
+              cat.id === 'payment'
+                ? category === 'payment' || category === 'budget' || category === 'calculation'
+                : cat.id === 'note'
+                ? category === 'note' || category === 'general'
                 : category === cat.id;
+            const isSuggested = smartCategorySuggestion?.category === cat.id;
             return (
               <button
                 key={cat.id}
+                type="button"
                 onClick={() => {
                   triggerHaptic();
                   setCategory(cat.id as NoteCategory);
                 }}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
+                className={`relative flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer whitespace-nowrap ${
                   isSelected
                     ? `${cat.activeClass} shadow-xs`
+                    : isSuggested
+                    ? 'bg-amber-100/90 dark:bg-amber-950/50 text-amber-950 dark:text-amber-200 ring-1 ring-amber-400/80 dark:ring-amber-600/70'
                     : 'bg-stone-200/80 dark:bg-stone-800/80 text-stone-700 dark:text-stone-300 hover:bg-stone-300/80 dark:hover:bg-stone-700'
                 }`}
                 title={cat.tip}
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span>{cat.label.replace(/^[^\s]+\s/, '')}</span>
+                <span>{cat.label}</span>
+                {isSuggested && !isSelected && (
+                  <Sparkles className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                )}
               </button>
             );
           })}
@@ -1428,7 +1540,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={
-            category === 'event'
+            category === 'payment' || category === 'budget' || category === 'calculation'
+              ? 'Название бюджета или расчёта...'
+              : category === 'event'
               ? 'Название события или встречи...'
               : category === 'shopping'
               ? 'Список покупок в тетрадке...'
@@ -1439,6 +1553,101 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           }`}
         />
       </div>
+
+      {/* REAL-TIME SMART CATEGORY SUGGESTION BANNER */}
+      {smartCategorySuggestion && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`px-3 sm:px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0 transition-colors ${
+            smartCategorySuggestion.category === 'payment'
+              ? 'bg-amber-50/95 dark:bg-amber-950/30 border-amber-300/70 dark:border-amber-800/60'
+              : smartCategorySuggestion.category === 'shopping'
+              ? 'bg-emerald-50/95 dark:bg-emerald-950/30 border-emerald-300/70 dark:border-emerald-800/60'
+              : 'bg-purple-50/95 dark:bg-purple-950/30 border-purple-300/70 dark:border-purple-800/60'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={`p-1.5 rounded-xl shrink-0 ${
+                smartCategorySuggestion.category === 'payment'
+                  ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                  : smartCategorySuggestion.category === 'shopping'
+                  ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-purple-500/20 text-purple-800 dark:text-purple-300'
+              }`}
+            >
+              {smartCategorySuggestion.category === 'payment' ? (
+                <Wallet className="w-3.5 h-3.5" />
+              ) : smartCategorySuggestion.category === 'shopping' ? (
+                <ShoppingCart className="w-3.5 h-3.5" />
+              ) : (
+                <Calendar className="w-3.5 h-3.5" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Sparkles className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-xs font-extrabold text-stone-900 dark:text-white">
+                  Умная подсказка: «{smartCategorySuggestion.label}»
+                </span>
+                {smartCategorySuggestion.category === 'event' &&
+                  (smartCategorySuggestion.extractedEventDate ||
+                    smartCategorySuggestion.extractedEventTime) && (
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-purple-500/15 text-purple-800 dark:text-purple-200">
+                      {[
+                        smartCategorySuggestion.extractedEventDate
+                          ?.split('-')
+                          .reverse()
+                          .slice(0, 2)
+                          .join('.'),
+                        smartCategorySuggestion.extractedEventTime,
+                      ]
+                        .filter(Boolean)
+                        .join(' • ')}
+                    </span>
+                  )}
+              </div>
+              <p className="text-[11px] text-stone-600 dark:text-stone-300 truncate">
+                {smartCategorySuggestion.reason}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleApplySuggestedCategory}
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-xs transition active:scale-95 cursor-pointer ${
+                smartCategorySuggestion.category === 'payment'
+                  ? 'bg-amber-600 hover:bg-amber-500'
+                  : smartCategorySuggestion.category === 'shopping'
+                  ? 'bg-emerald-600 hover:bg-emerald-500'
+                  : 'bg-purple-600 hover:bg-purple-500'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Применить</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(8);
+                setDismissedSuggestedCategories((prev) =>
+                  prev.includes(smartCategorySuggestion.category)
+                    ? prev
+                    : [...prev, smartCategorySuggestion.category]
+                );
+              }}
+              aria-label="Скрыть подсказку категории"
+              title="Скрыть подсказку"
+              className="p-1.5 rounded-xl text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* AI AUTO-TAGGING & ORGANIZATION BAR */}
       {!shouldLiftCard && (
@@ -1963,6 +2172,23 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               >
                 Пунктуация: {useSmartPunctuation ? 'ВКЛ' : 'ВЫКЛ'}
               </button>
+
+              {/* New Voice Note quick action */}
+              {onCreateVoiceNote && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(15);
+                    stopListening();
+                    onCreateVoiceNote('', '', true);
+                  }}
+                  className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-xl bg-white dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-200 border border-rose-300 dark:border-rose-700 font-bold text-[11px] transition cursor-pointer"
+                  title="Создать новую чистую заметку и сразу начать диктовку"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Новая диктовкой</span>
+                </button>
+              )}
 
               {/* Stop button */}
               <button
@@ -2680,9 +2906,47 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 )}
               </div>
 
-              {/* Insert into Note Button */}
-              {transcriptHistory.length > 0 && (
-                <div className="flex items-center gap-1.5">
+              {/* Insert into current note or create a brand-new note from voice dictation */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {onCreateVoiceNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic(15);
+                      stopListening();
+                      if (transcriptHistory.length > 0) {
+                        const firstLine = transcriptHistory[0].text.trim();
+                        const generatedTitle =
+                          firstLine.length > 48
+                            ? `${firstLine.slice(0, 48).replace(/\s+\S*$/, '')}…`
+                            : firstLine;
+                        const fullText = transcriptHistory.map((t) => t.text).join('\n');
+                        setShowVoiceModal(false);
+                        onCreateVoiceNote(
+                          generatedTitle
+                            ? generatedTitle.charAt(0).toUpperCase() + generatedTitle.slice(1)
+                            : 'Голосовая заметка',
+                          fullText,
+                          false
+                        );
+                      } else {
+                        setShowVoiceModal(false);
+                        onCreateVoiceNote('', '', true);
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition active:scale-95 shadow cursor-pointer"
+                    title="Создать новую заметку на основе голосовой диктовки"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>
+                      {transcriptHistory.length > 0
+                        ? 'Новая заметка из диктовки'
+                        : 'Новая заметка голосом'}
+                    </span>
+                  </button>
+                )}
+
+                {transcriptHistory.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2699,8 +2963,182 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     <PlusCircle className="w-3.5 h-3.5" />
                     <span>Вставить в тетрадь</span>
                   </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Tag Management Modal */}
+      {isTagManagerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-xs animate-in fade-in"
+          onClick={() => setIsTagManagerOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-label="Управление тегами заметки"
+            className="w-full max-w-md bg-[#fffdfa] dark:bg-stone-900 border border-amber-900/20 dark:border-stone-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-stone-900 dark:text-stone-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b border-amber-900/10 dark:border-stone-800 flex items-center justify-between bg-amber-500/5 dark:bg-stone-800/50">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                  <Tag className="w-4 h-4" />
                 </div>
-              )}
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-stone-950 dark:text-white">
+                    Управление тегами
+                  </h3>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    Добавляйте пользовательские теги или удаляйте лишние
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTagManagerOpen(false)}
+                aria-label="Закрыть управление тегами"
+                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {/* Custom Tag Form */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const parts = tagInput
+                    .split(/[,\s]+/)
+                    .map((p) => p.trim())
+                    .filter(Boolean);
+                  parts.forEach((p) => handleAddTag(p));
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  placeholder="Введите тег, например: #работа или дом"
+                  autoFocus
+                  className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-stone-950 border border-stone-300 dark:border-stone-700 text-stone-950 dark:text-white text-xs sm:text-sm font-mono focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!tagInput.trim()}
+                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer shrink-0"
+                >
+                  Добавить
+                </button>
+              </form>
+
+              {/* Active Note Tags */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                    Текущие теги заметки ({tags.length})
+                  </span>
+                  {tags.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic();
+                        setTags([]);
+                      }}
+                      className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                    >
+                      Удалить все
+                    </button>
+                  )}
+                </div>
+
+                {tags.length === 0 ? (
+                  <p className="text-xs text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-950/60 border border-dashed border-stone-200 dark:border-stone-800 rounded-xl p-3 text-center">
+                    У заметки пока нет тегов — введите свой выше или выберите ниже
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-mono text-xs font-bold"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(tag)}
+                          aria-label={`Удалить тег ${tag}`}
+                          className="p-0.5 rounded-md hover:bg-amber-200/80 dark:hover:bg-amber-900/80 text-amber-800 dark:text-amber-300 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Popular / Preset Quick Tags */}
+              <div className="space-y-2 pt-2 border-t border-stone-200/80 dark:border-stone-800">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                    Популярные категории
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTriggerAiTagging}
+                    disabled={isLoadingAiTags}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 dark:text-amber-300 border border-amber-400/40 text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles className={`w-3 h-3 ${isLoadingAiTags ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingAiTags ? 'Подбор...' : 'Подобрать AI'}</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_TAGS.map((preset) => {
+                    const normPreset = normalizeTag(preset);
+                    const isActive = tags.some((t) => t.toLowerCase() === normPreset.toLowerCase());
+                    return (
+                      <button
+                        key={normPreset}
+                        type="button"
+                        onClick={() => {
+                          if (isActive) {
+                            handleRemoveTag(
+                              tags.find((t) => t.toLowerCase() === normPreset.toLowerCase()) || normPreset
+                            );
+                          } else {
+                            handleAddTag(normPreset);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-xl font-mono text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border-emerald-400 dark:border-emerald-700'
+                            : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+                        }`}
+                      >
+                        {isActive ? `✓ ${normPreset}` : `+ ${normPreset}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3.5 border-t border-amber-900/10 dark:border-stone-800 bg-amber-500/5 dark:bg-stone-800/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsTagManagerOpen(false)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer"
+              >
+                Готово
+              </button>
             </div>
           </div>
         </div>
