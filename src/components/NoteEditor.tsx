@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Note, NoteCategory, PaperStyleType, EventCategory, EVENT_CATEGORY_CONFIG, EVENT_CATEGORIES_LIST } from '../types';
 import { analyzeNote, formatMoney } from '../utils/mathEngine';
 import { extractShoppingItems } from '../utils/shoppingParser';
@@ -229,48 +229,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [ocrStatusText, setOcrStatusText] = useState<string>('');
   const [showOcrMenu, setShowOcrMenu] = useState<boolean>(false);
 
-  // Synchronized scrolling refs
+  // Unified scroll container & exact wrapped-line alignment refs
+  const sheetScrollRef = useRef<HTMLDivElement>(null);
+  const editorColumnRef = useRef<HTMLDivElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const calcColumnRef = useRef<HTMLDivElement>(null);
-  const isSyncingScroll = useRef<boolean>(false);
-
-  const handleTextareaScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (isSyncingScroll.current) return;
-    if (calcColumnRef.current) {
-      isSyncingScroll.current = true;
-      calcColumnRef.current.scrollTop = e.currentTarget.scrollTop;
-      requestAnimationFrame(() => {
-        isSyncingScroll.current = false;
-      });
-    }
-  };
-
-  const handlePreviewScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (isSyncingScroll.current) return;
-    if (calcColumnRef.current) {
-      isSyncingScroll.current = true;
-      calcColumnRef.current.scrollTop = e.currentTarget.scrollTop;
-      requestAnimationFrame(() => {
-        isSyncingScroll.current = false;
-      });
-    }
-  };
-
-  const handleCalcScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (isSyncingScroll.current) return;
-    isSyncingScroll.current = true;
-    const top = e.currentTarget.scrollTop;
-    if (textareaRef.current) {
-      textareaRef.current.scrollTop = top;
-    }
-    if (previewRef.current) {
-      previewRef.current.scrollTop = top;
-    }
-    requestAnimationFrame(() => {
-      isSyncingScroll.current = false;
-    });
-  };
+  const [lineHeights, setLineHeights] = useState<number[]>([]);
+  const [sheetViewportHeight, setSheetViewportHeight] = useState<number>(380);
 
   // Image OCR Handler
   const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -349,6 +316,104 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     [content, category, autoCalculate]
   );
   const shoppingItems = useMemo(() => extractShoppingItems(content), [content]);
+  const rawLines = useMemo(() => content.split('\n'), [content]);
+
+  // Measure the exact visual height of each logical line (including soft wraps on mobile)
+  // so every result pill in Column 2 stays strictly aligned opposite its source line in Column 1.
+  const measureLineHeights = useCallback(() => {
+    const sourceEl = isPreviewMode ? previewRef.current : mirrorRef.current;
+    if (!sourceEl) return;
+
+    const baseLineHeight = currentFont.lineHeight;
+    const children = sourceEl.children;
+    const nextHeights: number[] = new Array(children.length);
+
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i] as HTMLElement;
+      const rectHeight = child.getBoundingClientRect().height;
+      if (isPreviewMode) {
+        nextHeights[i] = Math.max(baseLineHeight, Math.round(rectHeight));
+      } else {
+        // Textarea visual line heights are strict integer multiples of line-height
+        const visualRows = Math.max(1, Math.round(rectHeight / baseLineHeight));
+        nextHeights[i] = visualRows * baseLineHeight;
+      }
+    }
+
+    setLineHeights((prev) => {
+      if (
+        prev.length === nextHeights.length &&
+        prev.every((val, idx) => val === nextHeights[idx])
+      ) {
+        return prev;
+      }
+      return nextHeights;
+    });
+
+    if (sheetScrollRef.current) {
+      const vpHeight = sheetScrollRef.current.clientHeight;
+      if (vpHeight > 0) {
+        setSheetViewportHeight((prev) => (prev === vpHeight ? prev : vpHeight));
+      }
+    }
+  }, [isPreviewMode, currentFont.lineHeight]);
+
+  useLayoutEffect(() => {
+    measureLineHeights();
+  }, [
+    measureLineHeights,
+    rawLines,
+    currentFont.size,
+    currentFont.lineHeight,
+    mathSummary.totalCalculatedLines,
+  ]);
+
+  useEffect(() => {
+    const editorCol = editorColumnRef.current;
+    const sheetEl = sheetScrollRef.current;
+    if (!editorCol && !sheetEl) return;
+
+    let rafId = 0;
+    const scheduleMeasure = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        measureLineHeights();
+      });
+    };
+
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(scheduleMeasure)
+        : null;
+
+    if (observer) {
+      if (editorCol) observer.observe(editorCol);
+      if (sheetEl) observer.observe(sheetEl);
+    }
+
+    if (typeof document !== 'undefined' && 'fonts' in document) {
+      document.fonts.ready.then(scheduleMeasure).catch(() => {});
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      observer?.disconnect();
+    };
+  }, [measureLineHeights]);
+
+  const totalMeasuredLinesHeight = useMemo(() => {
+    if (lineHeights.length === rawLines.length && lineHeights.length > 0) {
+      return lineHeights.reduce((sum, h) => sum + h, 0);
+    }
+    return rawLines.length * currentFont.lineHeight;
+  }, [lineHeights, rawLines.length, currentFont.lineHeight]);
+
+  // Keep textarea strictly taller than its wrapped text (+ top/bottom padding) so it never
+  // creates an independent internal scrollbar; all scrolling happens in sheetScrollRef.
+  const textareaHeight = Math.max(
+    sheetViewportHeight,
+    totalMeasuredLinesHeight + 14 + 144 + currentFont.lineHeight
+  );
 
   // Synchronize state changes back to parent
   useEffect(() => {
@@ -2017,146 +2082,198 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           ))}
         </div>
 
-        {/* Notebook Sheet Body with selected Paper Style and Red Margins (at 56px) */}
+        {/* Unified Single-Scroll Notebook Sheet Body: Column 1 + Column 2 scroll as ONE locked layer */}
         <div
           style={{ '--notebook-line-height': `${currentFont.lineHeight}px` } as React.CSSProperties}
-          className={`flex-1 flex overflow-hidden relative p-0 gap-1 ${paperClass} notebook-margin-red text-stone-900 dark:text-stone-100`}
+          className={`flex-1 min-w-0 relative overflow-hidden ${paperClass} text-stone-900 dark:text-stone-100`}
         >
-          {/* Main Textarea aligned on paper lines/grid strictly to the right of red margin (pl-16 = 64px) */}
-          <div className="flex-1 h-full relative pl-16 pr-2 sm:pr-3 overflow-hidden">
-            {isPreviewMode ? (
-              <div
-                ref={previewRef}
-                onScroll={handlePreviewScroll}
-                className="w-full h-full overflow-y-auto font-mono selectable-text text-stone-900 dark:text-stone-100 pt-[14px]"
-                style={{
-                  lineHeight: `${currentFont.lineHeight}px`,
-                  fontSize: `${currentFont.size}px`,
-                }}
-              >
-                {content.split('\n').map((line, idx) => {
-                  let html = line
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gi, '<u class="underline decoration-stone-600 dark:decoration-stone-300 underline-offset-2">$1</u>')
-                    .replace(/&lt;mark class="marker-yellow"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-yellow">$1</mark>')
-                    .replace(/&lt;mark class="marker-green"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-green">$1</mark>')
-                    .replace(/&lt;mark class="marker-pink"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-pink">$1</mark>')
-                    .replace(/&lt;mark class="marker-blue"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-blue">$1</mark>')
-                    .replace(/&lt;mark class="marker-orange"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-orange">$1</mark>')
-                    .replace(/&lt;mark class="marker-purple"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-purple">$1</mark>')
-                    .replace(/==yellow:(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
-                    .replace(/==green:(.*?)==/gi, '<mark class="marker-green">$1</mark>')
-                    .replace(/==pink:(.*?)==/gi, '<mark class="marker-pink">$1</mark>')
-                    .replace(/==blue:(.*?)==/gi, '<mark class="marker-blue">$1</mark>')
-                    .replace(/==orange:(.*?)==/gi, '<mark class="marker-orange">$1</mark>')
-                    .replace(/==purple:(.*?)==/gi, '<mark class="marker-purple">$1</mark>')
-                    .replace(/==(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
-                    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-stone-950 dark:text-white">$1</strong>')
-                    .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
-                    .replace(/^- \[ \]/g, '⬜ ')
-                    .replace(/^- \[x\]/gi, '✅ ');
-
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        height: `${currentFont.lineHeight}px`,
-                        lineHeight: `${currentFont.lineHeight}px`,
-                      }}
-                      className="truncate"
-                      dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
-                    />
-                  );
-                })}
-              </div>
-            ) : (
-              <textarea
-                ref={textareaRef}
-                onFocus={() => setIsTextareaFocused(true)}
-                onBlur={() => setIsTextareaFocused(false)}
-                onScroll={handleTextareaScroll}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder={
-                  category === 'payment'
-                    ? `Учет финансов в тетрадке:\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
-                    : category === 'shopping'
-                    ? `Список продуктов в тетрадке:\n- [ ] Молоко 3.2% 2 л\n- [ ] Сыр 400 г\n- [ ] Хлеб 1 шт\n- [ ] Кофе 1 пачка`
-                    : category === 'event'
-                    ? `План события в тетради:\n14:00 — Встреча с коллегами\nКофе-брейк: 450 * 4\nПодготовить отчет и слайды`
-                    : `Заметки в тетрадке и быстрый расчет:\nАренда: 35000 руб\nСвет + вода: 2400 + 1350\nОбед: 450 * 2\nИтого к оплате:`
-                }
-                style={{
-                  lineHeight: `${currentFont.lineHeight}px`,
-                  fontSize: `${currentFont.size}px`,
-                  paddingTop: '14px',
-                }}
-                className="w-full h-full bg-transparent resize-none focus:outline-none font-mono selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-y-auto pb-36"
-              />
-            )}
-          </div>
-
-          {/* Live Math Results Margin (aligned exactly to note text lines with lockstep scroll) */}
-          {mathSummary.totalCalculatedLines > 0 && (
+          <div
+            ref={sheetScrollRef}
+            className="absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-y-contain"
+          >
             <div
-              ref={calcColumnRef}
-              onScroll={handleCalcScroll}
-              style={{ paddingTop: '14px' }}
-              className="w-28 sm:w-36 h-full overflow-y-auto pl-2 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0"
+              className={`min-h-full flex items-stretch relative p-0 gap-1 ${paperClass} notebook-margin-red`}
             >
-              <div className="space-y-0">
-                {mathSummary.lines.map((line, idx) => (
+              {/* Column 1: Main Textarea / Preview aligned strictly to the right of red margin (pl-16 = 64px) */}
+              <div
+                ref={editorColumnRef}
+                className="flex-1 min-w-0 relative pl-16 pr-2 sm:pr-3"
+              >
+                {/* Invisible Typography Mirror for exact per-line wrapped height calculation */}
+                {!isPreviewMode && (
                   <div
-                    key={idx}
+                    ref={mirrorRef}
+                    aria-hidden="true"
                     style={{
-                      height: `${currentFont.lineHeight}px`,
                       lineHeight: `${currentFont.lineHeight}px`,
+                      fontSize: `${currentFont.size}px`,
+                      paddingTop: '14px',
+                      wordBreak: 'normal',
+                      overflowWrap: 'break-word',
                     }}
-                    className="flex items-center justify-end"
+                    className="pointer-events-none invisible absolute top-0 left-16 right-2 sm:right-3 font-mono font-medium whitespace-pre-wrap select-none p-0 m-0 border-0"
                   >
-                    {line.result !== null ? (
-                      <button
-                        onClick={() => handleCopyResult(line.result!, line.currency)}
-                        className={`group/res flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-bold text-xs transition active:scale-95 shadow-2xs cursor-pointer ${
-                          line.isTotalLine
-                            ? 'bg-amber-100 hover:bg-amber-200 border-amber-400 text-amber-950 dark:bg-amber-600/40 dark:text-amber-200'
-                            : line.type === 'income'
-                            ? 'bg-emerald-100 hover:bg-emerald-200 border-emerald-400 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-200'
-                            : line.type === 'expense'
-                            ? 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:text-rose-200'
-                            : 'bg-teal-50 hover:bg-teal-100 border-teal-300 text-teal-950 dark:bg-teal-950/50 dark:text-teal-200'
-                        }`}
-                        title={
-                          line.isTotalLine
-                            ? 'Итоговая строка'
-                            : line.type === 'income'
-                            ? 'Прибыль'
-                            : line.type === 'expense'
-                            ? 'Расход'
-                            : 'Результат расчета'
-                        }
-                      >
-                        <span>
-                          {line.isTotalLine
-                            ? `= ${formatMoney(line.result, line.currency)}`
-                            : line.type === 'income'
-                            ? `+${formatMoney(line.result, line.currency)}`
-                            : line.type === 'expense'
-                            ? `−${formatMoney(line.result, line.currency)}`
-                            : `= ${formatMoney(line.result, line.currency)}`}
-                        </span>
-                        <Copy className="w-2.5 h-2.5 opacity-0 group-hover/res:opacity-100 transition" />
-                      </button>
-                    ) : (
-                      <span className="text-stone-400 dark:text-stone-600 text-[10px] select-none">—</span>
-                    )}
+                    {rawLines.map((line, idx) => (
+                      <div key={idx}>{line.length > 0 ? line : '\u00A0'}</div>
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {isPreviewMode ? (
+                  <div
+                    ref={previewRef}
+                    className="w-full font-mono font-medium selectable-text text-stone-900 dark:text-stone-100 pt-[14px] pb-36 whitespace-pre-wrap"
+                    style={{
+                      lineHeight: `${currentFont.lineHeight}px`,
+                      fontSize: `${currentFont.size}px`,
+                      wordBreak: 'normal',
+                      overflowWrap: 'break-word',
+                    }}
+                  >
+                    {rawLines.map((line, idx) => {
+                      const html = line
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gi, '<u class="underline decoration-stone-600 dark:decoration-stone-300 underline-offset-2">$1</u>')
+                        .replace(/&lt;mark class="marker-yellow"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-yellow">$1</mark>')
+                        .replace(/&lt;mark class="marker-green"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-green">$1</mark>')
+                        .replace(/&lt;mark class="marker-pink"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-pink">$1</mark>')
+                        .replace(/&lt;mark class="marker-blue"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-blue">$1</mark>')
+                        .replace(/&lt;mark class="marker-orange"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-orange">$1</mark>')
+                        .replace(/&lt;mark class="marker-purple"&gt;(.*?)&lt;\/mark&gt;/gi, '<mark class="marker-purple">$1</mark>')
+                        .replace(/==yellow:(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
+                        .replace(/==green:(.*?)==/gi, '<mark class="marker-green">$1</mark>')
+                        .replace(/==pink:(.*?)==/gi, '<mark class="marker-pink">$1</mark>')
+                        .replace(/==blue:(.*?)==/gi, '<mark class="marker-blue">$1</mark>')
+                        .replace(/==orange:(.*?)==/gi, '<mark class="marker-orange">$1</mark>')
+                        .replace(/==purple:(.*?)==/gi, '<mark class="marker-purple">$1</mark>')
+                        .replace(/==(.*?)==/gi, '<mark class="marker-yellow">$1</mark>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-stone-950 dark:text-white">$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+                        .replace(/^- \[ \]/g, '⬜ ')
+                        .replace(/^- \[x\]/gi, '✅ ');
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            minHeight: `${currentFont.lineHeight}px`,
+                            lineHeight: `${currentFont.lineHeight}px`,
+                          }}
+                          className="break-words"
+                          dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    onFocus={() => setIsTextareaFocused(true)}
+                    onBlur={() => setIsTextareaFocused(false)}
+                    onScroll={(e) => {
+                      if (e.currentTarget.scrollTop !== 0) {
+                        e.currentTarget.scrollTop = 0;
+                      }
+                    }}
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder={
+                      category === 'payment'
+                        ? `Учет финансов в тетрадке:\n=== Доходы ===\n+ Зарплата: 95 000 руб\n+ Премия: 15 000\n\n=== Расходы ===\n- Аренда: 35 000 руб\n- Продукты: 18 500\n- Коммуналка: 4 500\n\nОстаток в итоге:`
+                        : category === 'shopping'
+                        ? `Список продуктов в тетрадке:\n- [ ] Молоко 3.2% 2 л\n- [ ] Сыр 400 г\n- [ ] Хлеб 1 шт\n- [ ] Кофе 1 пачка`
+                        : category === 'event'
+                        ? `План события в тетради:\n14:00 — Встреча с коллегами\nКофе-брейк: 450 * 4\nПодготовить отчет и слайды`
+                        : `Заметки в тетрадке и быстрый расчет:\nАренда: 35000 руб\nСвет + вода: 2400 + 1350\nОбед: 450 * 2\nИтого к оплате:`
+                    }
+                    style={{
+                      lineHeight: `${currentFont.lineHeight}px`,
+                      fontSize: `${currentFont.size}px`,
+                      paddingTop: '14px',
+                      paddingBottom: '144px',
+                      paddingLeft: 0,
+                      paddingRight: 0,
+                      height: `${textareaHeight}px`,
+                      wordBreak: 'normal',
+                      overflowWrap: 'break-word',
+                    }}
+                    className="block w-full bg-transparent resize-none focus:outline-none font-mono selectable-text text-stone-900 dark:text-stone-100 placeholder-stone-500/70 dark:placeholder-stone-400 font-medium overflow-hidden m-0 border-0"
+                  />
+                )}
               </div>
+
+              {/* Column 2: Live Math Results Margin — exact per-line heights in the SAME scroll layer */}
+              {mathSummary.totalCalculatedLines > 0 && (
+                <div
+                  ref={calcColumnRef}
+                  style={{ paddingTop: '14px' }}
+                  className="w-28 sm:w-36 pl-1.5 pr-1.5 border-l border-amber-900/15 dark:border-stone-700/60 flex flex-col font-mono text-xs select-none shrink-0 pb-36"
+                >
+                  <div className="space-y-0">
+                    {mathSummary.lines.map((line, idx) => {
+                      const rowHeight = lineHeights[idx] ?? currentFont.lineHeight;
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            height: `${rowHeight}px`,
+                          }}
+                          className="flex items-start justify-end"
+                        >
+                          <div
+                            style={{
+                              height: `${currentFont.lineHeight}px`,
+                              lineHeight: `${currentFont.lineHeight}px`,
+                            }}
+                            className="w-full flex items-center justify-end"
+                          >
+                            {line.result !== null ? (
+                              <button
+                                onClick={() => handleCopyResult(line.result!, line.currency)}
+                                className={`group/res flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-bold text-[11px] sm:text-xs leading-none whitespace-nowrap max-w-full transition active:scale-95 shadow-2xs cursor-pointer ${
+                                  line.isTotalLine
+                                    ? 'bg-amber-100 hover:bg-amber-200 border-amber-400 text-amber-950 dark:bg-amber-600/40 dark:text-amber-200'
+                                    : line.type === 'income'
+                                    ? 'bg-emerald-100 hover:bg-emerald-200 border-emerald-400 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-200'
+                                    : line.type === 'expense'
+                                    ? 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-950/60 dark:text-rose-200'
+                                    : 'bg-teal-50 hover:bg-teal-100 border-teal-300 text-teal-950 dark:bg-teal-950/50 dark:text-teal-200'
+                                }`}
+                                title={
+                                  line.isTotalLine
+                                    ? 'Итоговая строка'
+                                    : line.type === 'income'
+                                    ? 'Прибыль'
+                                    : line.type === 'expense'
+                                    ? 'Расход'
+                                    : 'Результат расчета'
+                                }
+                              >
+                                <span className="truncate">
+                                  {line.isTotalLine
+                                    ? `= ${formatMoney(line.result, line.currency)}`
+                                    : line.type === 'income'
+                                    ? `+${formatMoney(line.result, line.currency)}`
+                                    : line.type === 'expense'
+                                    ? `−${formatMoney(line.result, line.currency)}`
+                                    : `= ${formatMoney(line.result, line.currency)}`}
+                                </span>
+                                <Copy className="hidden sm:inline-block w-2.5 h-2.5 opacity-0 group-hover/res:opacity-100 transition shrink-0" />
+                              </button>
+                            ) : (
+                              <span className="text-stone-400 dark:text-stone-600 text-[10px] select-none">—</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
